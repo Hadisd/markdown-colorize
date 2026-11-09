@@ -1,0 +1,133 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stablyai/orca/main/docs/schemas/plugins/orca-plugin.v2.schema.json",
+  "manifestVersion": 2,
+  "id": "markdown-colorize",
+  "name": "Markdown Colorize",
+  "version": "1.0.0",
+  "description": "A colorful reading view for Markdown and MDX files: colored headings, code, math, badges, tables, callouts and an outline.",
+  "license": "MIT",
+  "repository": "https://github.com/Hadisd/markdown-colorize",
+  "icon": "images/icon.png",
+  "cover": {
+    "path": "images/cover.png",
+    "alt": "Markdown Colorize preview: a README with a pink title, colored badges, a tagline and highlighted code, with Source and Colorized tabs."
+  },
+  "engines": {
+    "orca": ">=1.4.248"
+  },
+  "execution": "sandboxed-ui",
+  "pluginApi": 1,
+  "contributes": {
+    "customEditors": [
+      {
+        "id": "markdown-colorize",
+        "title": "Colorized",
+        "extensions": [
+          ".md",
+          ".markdown"
+        ],
+        "entry": "editor/main.ts",
+        "priority": "option",
+        "frame": "isolated"
+      },
+      {
+        "id": "mdx-colorize",
+        "title": "Colorized",
+        "extensions": [
+          ".mdx"
+        ],
+        "entry": "editor/mdx.ts",
+        "priority": "default",
+        "frame": "isolated"
+      }
+    ],
+    "settings": [
+      {
+        "key": "textFont",
+        "title": "Text font",
+        "description": "Body text font. Empty uses the system font.",
+        "type": "string",
+        "default": "",
+        "maxLength": 128,
+        "placeholder": "e.g. Inter"
+      },
+      {
+        "key": "codeFont",
+        "title": "Code font",
+        "description": "Code font. Empty uses the system monospace font.",
+        "type": "string",
+        "default": "",
+        "maxLength": 128,
+        "placeholder": "e.g. JetBrains Mono"
+      },
+      {
+        "key": "fontSize",
+        "title": "Text size",
+        "description": "Body text size in pixels.",
+        "type": "integer",
+        "default": 15,
+        "minimum": 11,
+        "maximum": 28
+      },
+      {
+        "key": "themeMode",
+        "title": "Light or dark",
+        "description": "Auto follows Orca's theme.",
+        "type": "string",
+        "default": "auto",
+        "enum": [
+          "auto",
+          "dark",
+          "light"
+        ],
+        "enumLabels": [
+          "Auto",
+          "Dark",
+          "Light"
+        ]
+      },
+      {
+        "key": "contentWidth",
+        "title": "Text width",
+        "description": "Full fills the tab; Narrow limits line length.",
+        "type": "string",
+        "default": "full",
+        "enum": [
+          "full",
+          "narrow"
+        ],
+        "enumLabels": [
+          "Full",
+          "Narrow"
+        ]
+      },
+      {
+        "key": "colorStyle",
+        "title": "Color style",
+        "type": "string",
+        "default": "vivid",
+        "enum": [
+          "vivid",
+          "dim"
+        ],
+        "enumLabels": [
+          "Vivid",
+          "Dim"
+        ],
+        "description": "Dim softens every color."
+      },
+      {
+        "key": "showOutline",
+        "title": "Show outline",
+        "description": "Show the headings list.",
+        "type": "boolean",
+        "default": false
+      }
+    ]
+  },
+  "capabilities": [
+    {
+      "kind": "settings:own"
+    }
+  ]
+}

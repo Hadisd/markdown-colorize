@@ -1,0 +1,33 @@
+---
+title: MDX sample
+---
+
+import { Chart } from './chart'
+import Banner from '../components/banner'
+
+export const meta = { author: 'hadi', draft: false }
+
+# MDX is Markdown plus components
+
+<Banner kind="info" dismissible>
+  Imports, exports and JSX are shown as code, not as plain text.
+</Banner>
+
+Some **Markdown** text with `inline code` between components.
+
+<Chart data={[1, 2, 3]} title="Weekly" />
+
+<Tabs>
+
+Markdown inside a component stays Markdown, with **bold** text.
+
+</Tabs>
+
+## Back to Markdown
+
+- A list item
+- Another one
+
+```js
+export const answer = 42
+```
