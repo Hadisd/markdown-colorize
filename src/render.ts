@@ -50,7 +50,6 @@ const ALIAS: Record<string, string> = {
 }
 
 export type TocEntry = { depth: number; text: string; id: string }
-export type Rendered = { html: string; toc: TocEntry[]; words: number }
 export type RenderOptions = { mdx?: boolean }
 
 const escapeHtml = (s: string): string =>
@@ -214,47 +213,11 @@ const cleanHtml = (raw: string): string =>
     })
     .join('')
 
-// ---- MDX: import/export lines and JSX blocks are code, not prose ----
+// ---- MDX: import/export lines and JSX blocks are code, not prose (see splitMdx below) ----
 
 const JSX_START = /^\s*(<>|<\/>|<\/?[A-Z][\w.]*|<[a-z][\w-]*\s[^>]*\{)/
 // At column 0 only: a component on its own line(s), such as <Chart data={...} /> or </Tabs>.
 const JSX_BLOCK_START = /^(<>|<\/>|<\/?[A-Z][\w.]*)/
-
-const hoistMdxModules = (text: string): string => {
-  const lines = text.split('\n')
-  const out: string[] = []
-  let fence: string | null = null
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]
-    const f = /^\s{0,3}(`{3,}|~{3,})/.exec(line)
-    if (f) {
-      fence = fence === null ? f[1] : line.trim().startsWith(fence) ? null : fence
-      out.push(line)
-      continue
-    }
-    const isModule = /^(import|export)\s/.test(line)
-    if (fence === null && (isModule || JSX_BLOCK_START.test(line))) {
-      // A run of lines up to the next blank line. A component that holds Markdown across blank
-      // lines becomes code (its tags), Markdown (its body), code (its closing tag).
-      const block: string[] = []
-      while (i < lines.length && lines[i].trim() !== '') {
-        block.push(lines[i])
-        i++
-      }
-      out.push(isModule ? '```js mdx-module' : '```jsx mdx-jsx', ...block, '```', '')
-      continue
-    }
-    out.push(line)
-  }
-  return out.join('\n')
-}
-
-// ---- front matter ----
-
-const splitFrontMatter = (text: string): { front: string | null; body: string } => {
-  const m = /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(text)
-  return m ? { front: m[1], body: text.slice(m[0].length) } : { front: null, body: text }
-}
 
 // ---- callouts, like GitHub's  > [!NOTE] ----
 
@@ -413,18 +376,121 @@ const makeMarked = (toc: TocEntry[], seen: Map<string, number>, mdx: boolean): M
   return md
 }
 
-export function renderMarkdown(source: string, options: RenderOptions = {}): Rendered {
+/** highlight.js HTML for the code; used by the Live editor to color fenced code. */
+export const highlightCode = (code: string, lang: string): string => highlight(code, lang)
+
+// ---- blocks: the same page, cut into top-level pieces that each know their place in the file ----
+
+/** One top-level piece of the page. `from` and `to` are offsets into the normalized text (line
+ *  endings as \n), where text.slice(from, to) is exactly the Markdown that produced `html`. */
+export type Block = { from: number; to: number; html: string }
+export type BlockRender = { blocks: Block[]; toc: TocEntry[]; words: number }
+
+type Segment = { text: string; offset: number; hoist?: 'module' | 'jsx' }
+
+/** MDX: cuts the text into normal Markdown and the import/export/JSX runs shown as code. */
+const splitMdx = (text: string): Segment[] => {
+  const segments: Segment[] = []
+  const lines = text.split('\n')
+  let fence: string | null = null
+  let offset = 0 // where the current line starts
+  let normalFrom = 0
+  const flush = (end: number): void => {
+    if (end > normalFrom) {
+      segments.push({ text: text.slice(normalFrom, end), offset: normalFrom })
+    }
+  }
+  let i = 0
+  while (i < lines.length) {
+    const line = lines[i]
+    const f = /^\s{0,3}(`{3,}|~{3,})/.exec(line)
+    if (f) {
+      fence = fence === null ? f[1] : line.trim().startsWith(fence) ? null : fence
+    } else if (fence === null) {
+      const isModule = /^(import|export)\s/.test(line)
+      if (isModule || JSX_BLOCK_START.test(line)) {
+        const start = offset
+        let length = 0
+        let j = i
+        while (j < lines.length && lines[j].trim() !== '') {
+          length += lines[j].length + 1
+          j++
+        }
+        flush(start)
+        segments.push({ text: text.slice(start, start + length), offset: start, hoist: isModule ? 'module' : 'jsx' })
+        offset = start + length
+        normalFrom = offset
+        i = j
+        continue
+      }
+    }
+    offset += line.length + 1
+    i++
+  }
+  flush(text.length)
+  return segments
+}
+
+/**
+ * Renders the page as blocks, so the editor can swap one block for an editable copy of its own
+ * Markdown. Each block is parsed on its own; link definitions are added to every block so
+ * reference links still work.
+ */
+export function renderBlocks(source: string, options: RenderOptions = {}): BlockRender {
   const mdx = options.mdx === true
   const text = source.replace(/\r\n?/g, '\n')
-  const { front, body } = splitFrontMatter(text)
   const toc: TocEntry[] = []
   const md = makeMarked(toc, new Map(), mdx)
-  const src = mdx ? hoistMdxModules(body) : body
-  let html = ''
-  if (front !== null) {
-    html += `<div class="codeblock frontmatter"><div class="code-head"><span class="code-lang">front matter</span></div><pre><code class="hljs">${highlight(front, 'yaml')}</code></pre></div>\n`
+  const blocks: Block[] = []
+  const front = /^---[ \t]*\n([\s\S]*?)\n---[ \t]*(?:\n|$)/.exec(text)
+  let base = 0
+  if (front) {
+    const raw = front[0].replace(/\s+$/, '')
+    blocks.push({
+      from: 0,
+      to: raw.length,
+      html: `<div class="codeblock frontmatter"><div class="code-head"><span class="code-lang">front matter</span></div><pre><code class="hljs">${highlight(front[1], 'yaml')}</code></pre></div>\n`
+    })
+    base = front[0].length
   }
-  html += md.parse(src, { async: false }) as string
-  const words = (src.match(/[\p{L}\p{N}'’-]+/gu) ?? []).length
-  return { html, toc, words }
+  const body = text.slice(base)
+  const segments: Segment[] = mdx ? splitMdx(body) : [{ text: body, offset: 0 }]
+  const defs: string[] = []
+  const pending: { from: number; to: number; source: string }[] = []
+  for (const seg of segments) {
+    if (seg.hoist) {
+      const raw = seg.text.replace(/\s+$/, '')
+      const fence = seg.hoist === 'module' ? 'js mdx-module' : 'jsx mdx-jsx'
+      pending.push({ from: base + seg.offset, to: base + seg.offset + raw.length, source: '```' + fence + '\n' + raw + '\n```\n' })
+      continue
+    }
+    let pos = seg.offset
+    const found: { from: number; to: number; source: string }[] = []
+    for (const token of md.lexer(seg.text)) {
+      const raw = token.raw
+      if (token.type === 'def') {
+        defs.push(raw.replace(/\s+$/, ''))
+      } else if (token.type !== 'space') {
+        const trimmed = raw.replace(/\s+$/, '')
+        found.push({ from: base + pos, to: base + pos + trimmed.length, source: trimmed })
+      }
+      pos += raw.length
+    }
+    if (pos - seg.offset === seg.text.length) {
+      pending.push(...found)
+    } else {
+      // The parser's pieces do not add up to the text, so offsets cannot be trusted: one block.
+      const whole = seg.text.replace(/\s+$/, '')
+      if (whole.trim() !== '') {
+        pending.push({ from: base + seg.offset, to: base + seg.offset + whole.length, source: whole })
+      }
+    }
+  }
+  const definitions = defs.length ? `\n\n${defs.join('\n')}\n` : ''
+  for (const p of pending) {
+    blocks.push({ from: p.from, to: p.to, html: md.parse(p.source + definitions, { async: false }) as string })
+  }
+  blocks.sort((a, b) => a.from - b.from)
+  const words = (body.match(/[\p{L}\p{N}'’-]+/gu) ?? []).length
+  return { blocks, toc, words }
 }

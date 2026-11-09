@@ -28,6 +28,18 @@ await build({
   logLevel: 'info'
 })
 
+// The Live editor (CodeMirror), loaded only by the Live view.
+await build({
+  entryPoints: ['src/live.ts'],
+  outfile: 'editor/vendor/live.js',
+  bundle: true,
+  format: 'esm',
+  target: 'es2022',
+  minify: true,
+  legalComments: 'none',
+  logLevel: 'info'
+})
+
 const dist = 'node_modules/katex/dist'
 let css = readFileSync(`${dist}/katex.min.css`, 'utf8')
 // Each @font-face lists woff2, woff and ttf; keep only the woff2 source, as a data: URI.

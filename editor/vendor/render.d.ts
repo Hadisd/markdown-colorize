@@ -1,4 +1,6 @@
 export type TocEntry = { depth: number; text: string; id: string }
-export type Rendered = { html: string; toc: TocEntry[]; words: number }
 export type RenderOptions = { mdx?: boolean }
-export function renderMarkdown(source: string, options?: RenderOptions): Rendered
+export type Block = { from: number; to: number; html: string }
+export type BlockRender = { blocks: Block[]; toc: TocEntry[]; words: number }
+export function renderBlocks(source: string, options?: RenderOptions): BlockRender
+export function highlightCode(code: string, lang: string): string

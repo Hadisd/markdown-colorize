@@ -28,12 +28,16 @@ export const CSS = `
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); }
 body { font-family: var(--md-text-font, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif); font-size: var(--md-size, 15px); line-height: 1.7; }
 #shell { display: flex; flex-direction: column; height: 100vh; }
-#bar { display: flex; align-items: center; gap: 8px; padding: 6px 14px; flex: none;
+#bar { display: flex; flex-wrap: wrap; row-gap: 4px; align-items: center; gap: 8px; padding: 6px 14px; flex: none;
   border-bottom: 1px solid var(--line); color: var(--dim); font-size: 12px; }
 #bar .grow { flex: 1; }
-#bar button { font: inherit; color: var(--fg); background: transparent; cursor: pointer;
+#bar > span:first-child { white-space: nowrap; }
+#bar button:disabled, #find button:disabled { opacity: .4; cursor: default; }
+#bar button:disabled:hover { background: transparent; }
+.blk:focus-visible { outline: 2px solid var(--lav); outline-offset: 2px; }
+#bar button, #find button { font: inherit; color: var(--fg); background: transparent; cursor: pointer;
   border: 1px solid var(--line); border-radius: 6px; padding: 2px 9px; }
-#bar button:hover { background: var(--code-bg); }
+#bar button:hover, #find button:hover { background: var(--code-bg); }
 #bar .seg { display: inline-flex; }
 #bar .seg button { border-radius: 0; margin-left: -1px; }
 #bar .seg button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
@@ -142,5 +146,53 @@ a:has(.badge) { text-decoration: none; }
 .diagram.drawn { background: var(--bg); }
 .diagram.failed, .diagram:not(.drawn) { text-align: left; padding: 0; }
 .diagram-error { color: var(--pink); font-size: .9em; padding: 10px 14px 0; }
+#find { display: flex; align-items: center; gap: 6px; padding: 6px 14px; border-bottom: 1px solid var(--line); flex: none; }
+#find[hidden] { display: none; }
+#find input { flex: 0 1 320px; font: inherit; font-size: 13px; color: var(--fg); background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; outline: none; }
+#find input:focus { border-color: var(--lav); }
+#find .count { color: var(--dim); font-size: 12px; min-width: 72px; }
+#bar button[aria-pressed="true"], #find button[aria-pressed="true"] { border-color: var(--lav); color: var(--lav); }
+::highlight(find) { background-color: color-mix(in srgb, var(--yellow) 38%, transparent); color: inherit; }
+::highlight(find-current) { background-color: color-mix(in srgb, var(--orange) 75%, transparent); color: var(--bg); }
+
+/* ---- Click a block to edit it (CodeMirror inside the block) ---- */
+.blk { border-radius: 6px; }
+#doc.editable .blk:not(.editing):hover { background: color-mix(in srgb, var(--fg) 3.5%, transparent); cursor: text; }
+.blk.editing { outline: 1px solid color-mix(in srgb, var(--lav) 55%, transparent); background: color-mix(in srgb, var(--lav) 5%, transparent);
+  padding: 4px 10px; margin: 8px -10px; border-radius: 8px; }
+.blk-empty .empty { margin-top: 8vh; }
+#doc.editable { min-height: 70vh; }
+.cm-editor { outline: none !important; background: transparent; color: var(--fg); }
+.cm-scroller { font-family: inherit; line-height: inherit; overflow: visible !important; }
+.cm-content { padding: 0 !important; font-family: var(--md-text-font, ui-sans-serif, system-ui, sans-serif); caret-color: var(--fg); }
+.cm-line { padding: 0 2px !important; }
+.cm-cursor, .cm-dropCursor { border-left: 2px solid var(--fg) !important; }
+.cm-selectionBackground { background: color-mix(in srgb, var(--lav) 28%, transparent) !important; }
+.cm-focused .cm-selectionBackground { background: color-mix(in srgb, var(--lav) 40%, transparent) !important; }
+.cm-h { font-weight: 650; line-height: 1.3; padding-top: .5em !important; }
+.cm-h1 { color: var(--pink); font-size: 1.9em; border-bottom: 1px solid var(--line); padding-bottom: .2em !important; }
+.cm-h2 { color: var(--orange); font-size: 1.5em; border-bottom: 1px solid var(--line); padding-bottom: .15em !important; }
+.cm-h3 { color: var(--yellow); font-size: 1.22em; }
+.cm-h4 { color: var(--green); font-size: 1.05em; }
+.cm-h5 { color: var(--cyan); }
+.cm-h6 { color: var(--lav); font-style: italic; }
+.cm-syntax { color: var(--dim) !important; font-weight: 400; font-style: normal; text-decoration: none; }
+.cm-strong { color: var(--orange); font-weight: 650; }
+.cm-em { color: var(--lav); font-style: italic; }
+.cm-strike { color: var(--dim); text-decoration: line-through; }
+.cm-ic { font-family: var(--md-code-font, ui-monospace, monospace); font-size: .88em; color: var(--mint);
+  background: color-mix(in srgb, var(--mint) 12%, transparent); border-radius: 5px; padding: .12em .1em; }
+.cm-link { color: var(--blue); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--blue) 45%, transparent); text-underline-offset: 3px; }
+.cm-quote { border-left: 3px solid var(--lav); background: color-mix(in srgb, var(--lav) 7%, transparent); color: var(--dim); padding-left: 1em !important; }
+.cm-codeblock { background: var(--code-bg); font-family: var(--md-code-font, ui-monospace, monospace); font-size: calc(var(--md-size, 15px) * .87);
+  line-height: 1.6; padding: 0 14px !important; border-left: 1px solid var(--line); border-right: 1px solid var(--line); }
+.cm-codetop { border-top: 1px solid var(--line); border-radius: 8px 8px 0 0; }
+.cm-codebottom { border-bottom: 1px solid var(--line); border-radius: 0 0 8px 8px; }
+.cm-codefence { color: var(--dim); font-size: .8em; }
+.cm-listmark { color: var(--lav); }
+.cm-table-line, .cm-html { font-family: var(--md-code-font, ui-monospace, monospace); font-size: .9em; }
+.cm-html { color: var(--dim); }
+.cm-front { font-family: var(--md-code-font, ui-monospace, monospace); font-size: .9em; color: var(--dim);
+  background: var(--code-bg); border-left: 3px solid var(--yellow); padding-left: 12px !important; }
 .empty { color: var(--dim); text-align: center; margin-top: 18vh; }
 `
