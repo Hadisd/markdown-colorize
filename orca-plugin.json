@@ -27,8 +27,7 @@
           ".markdown"
         ],
         "entry": "editor/main.ts",
-        "priority": "option",
-        "frame": "isolated"
+        "priority": "option"
       },
       {
         "id": "mdx-colorize",
@@ -37,8 +36,7 @@
           ".mdx"
         ],
         "entry": "editor/mdx.ts",
-        "priority": "default",
-        "frame": "isolated"
+        "priority": "default"
       }
     ],
     "settings": [
