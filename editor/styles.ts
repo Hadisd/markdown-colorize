@@ -10,6 +10,9 @@ export const CSS = `
   --dim: color-mix(in srgb, var(--fg) 68%, var(--bg));
   --code-bg: color-mix(in srgb, var(--fg) 6%, var(--bg));
   --line: color-mix(in srgb, var(--fg) 16%, var(--bg));
+  --scroll-thumb: color-mix(in srgb, var(--fg) 28%, transparent);
+  --scroll-thumb-hover: color-mix(in srgb, var(--fg) 46%, transparent);
+  --scroll-thumb-active: color-mix(in srgb, var(--lav) 72%, transparent);
 }
 /* Pastel on light surfaces needs darker ink to stay readable. */
 :root.mode-light {
@@ -48,6 +51,50 @@ body { font-family: var(--md-text-font, ui-sans-serif, system-ui, -apple-system,
 #doc { max-width: var(--md-width, none); margin: 0 auto; padding: 22px 40px 80px; box-sizing: border-box; }
 #outline { width: 230px; flex: none; overflow: auto; padding: 16px 12px 40px 6px; border-left: 1px solid var(--line);
   font-size: 12.5px; line-height: 1.45; }
+
+/* Keep scrollbars quiet until they are needed, without losing their grab target. */
+#scroll, #outline, .table-wrap, pre, .math-block, .diagram {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) transparent;
+}
+#scroll::-webkit-scrollbar, #outline::-webkit-scrollbar, .table-wrap::-webkit-scrollbar,
+pre::-webkit-scrollbar, .math-block::-webkit-scrollbar, .diagram::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+#scroll::-webkit-scrollbar-track, #outline::-webkit-scrollbar-track, .table-wrap::-webkit-scrollbar-track,
+pre::-webkit-scrollbar-track, .math-block::-webkit-scrollbar-track, .diagram::-webkit-scrollbar-track {
+  background: transparent;
+}
+#scroll::-webkit-scrollbar-thumb, #outline::-webkit-scrollbar-thumb, .table-wrap::-webkit-scrollbar-thumb,
+pre::-webkit-scrollbar-thumb, .math-block::-webkit-scrollbar-thumb, .diagram::-webkit-scrollbar-thumb {
+  min-height: 36px;
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: var(--scroll-thumb);
+  background-clip: padding-box;
+}
+#scroll::-webkit-scrollbar-thumb:hover, #outline::-webkit-scrollbar-thumb:hover, .table-wrap::-webkit-scrollbar-thumb:hover,
+pre::-webkit-scrollbar-thumb:hover, .math-block::-webkit-scrollbar-thumb:hover, .diagram::-webkit-scrollbar-thumb:hover {
+  border-width: 2px;
+  background: var(--scroll-thumb-hover);
+  background-clip: padding-box;
+}
+#scroll::-webkit-scrollbar-thumb:active, #outline::-webkit-scrollbar-thumb:active, .table-wrap::-webkit-scrollbar-thumb:active,
+pre::-webkit-scrollbar-thumb:active, .math-block::-webkit-scrollbar-thumb:active, .diagram::-webkit-scrollbar-thumb:active {
+  background: var(--scroll-thumb-active);
+  background-clip: padding-box;
+}
+#scroll::-webkit-scrollbar-button, #outline::-webkit-scrollbar-button, .table-wrap::-webkit-scrollbar-button,
+pre::-webkit-scrollbar-button, .math-block::-webkit-scrollbar-button, .diagram::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+#scroll::-webkit-scrollbar-corner, #outline::-webkit-scrollbar-corner, .table-wrap::-webkit-scrollbar-corner,
+pre::-webkit-scrollbar-corner, .math-block::-webkit-scrollbar-corner, .diagram::-webkit-scrollbar-corner {
+  background: transparent;
+}
 #outline[hidden] { display: none; }
 #outline a { display: block; padding: 2px 8px; color: var(--dim); text-decoration: none; border-radius: 4px; }
 #outline a:hover { color: var(--fg); background: var(--code-bg); }
