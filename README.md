@@ -24,18 +24,6 @@ Edit in **Source**; the Colorized view updates when the file changes. Toolbar ch
 
 - Only images embedded in the Markdown (`data:` addresses) are drawn. Web images and files next to the document can't be loaded, so they show their alt text.
 - Raw HTML is cleaned to a short list of safe tags. MDX components are shown as code, not run.
-- `.md` can't open in Colorized by default; Orca opens it in its own view first.
-
-## Develop
-
-```sh
-npm install
-npm run build   # bundles src/ into editor/vendor/
-orca plugin validate .
-orca plugin dev watch .
-```
-
-Samples are in `examples/`.
 
 ## License
 
