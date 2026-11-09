@@ -252,8 +252,13 @@ export async function mountViewer(options: {
   let editing: Editing | null = null
   const history = new PageHistory()
   let sessionBefore = current
-  const undoBtn = el('button', { type: 'button', title: 'Undo the last edit (Ctrl/Cmd+Z)' }, 'Undo')
-  const redoBtn = el('button', { type: 'button', title: 'Redo (Ctrl/Cmd+Shift+Z)' }, 'Redo')
+  // Curved arrows drawn as SVG, so they look the same with any font.
+  const arrow = (d: string): string =>
+    `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display:block"><path d="${d}"/></svg>`
+  const undoBtn = el('button', { type: 'button', class: 'icon', title: 'Undo the last edit (Ctrl/Cmd+Z)', 'aria-label': 'Undo' })
+  const redoBtn = el('button', { type: 'button', class: 'icon', title: 'Redo (Ctrl/Cmd+Shift+Z)', 'aria-label': 'Redo' })
+  undoBtn.innerHTML = arrow('M5.5 3 2.5 6l3 3M2.5 6H9a4.5 4.5 0 0 1 0 9H6')
+  redoBtn.innerHTML = arrow('M10.5 3l3 3-3 3M13.5 6H7a4.5 4.5 0 0 0 0 9h3')
   undoBtn.hidden = redoBtn.hidden = !canEdit
   bar.insertBefore(undoBtn, outlineBtn)
   bar.insertBefore(redoBtn, outlineBtn)

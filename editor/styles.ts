@@ -41,6 +41,7 @@ body { font-family: var(--md-text-font, ui-sans-serif, system-ui, -apple-system,
 #bar button, #find button { font: inherit; color: var(--fg); background: transparent; cursor: pointer;
   border: 1px solid var(--line); border-radius: 6px; padding: 2px 9px; }
 #bar button:hover, #find button:hover { background: var(--code-bg); }
+#bar button.icon { padding: 4px 8px; display: inline-flex; align-items: center; }
 #bar .seg { display: inline-flex; }
 #bar .seg button { border-radius: 0; margin-left: -1px; }
 #bar .seg button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
