@@ -104,21 +104,26 @@ export async function mountViewer(options: {
       if (outline.hidden) {
         return
       }
-      const line = scroll.getBoundingClientRect().top + 24
-      let id = ''
-      for (const h of docEl.querySelectorAll<HTMLElement>('h1[id], h2[id], h3[id], h4[id], h5[id], h6[id]')) {
-        if (h.getBoundingClientRect().top > line) {
+      const box = scroll.getBoundingClientRect()
+      const line = box.top + 24
+      // At the very end the last headings can never reach the top, so any one in view counts.
+      const atEnd = scroll.scrollTop + scroll.clientHeight >= scroll.scrollHeight - 2
+      const headings = Array.from(docEl.querySelectorAll<HTMLElement>('h1[id], h2[id], h3[id], h4[id], h5[id], h6[id]'))
+      let id = headings[0]?.id ?? '' // above the first heading, the first one is marked
+      for (const h of headings) {
+        const top = h.getBoundingClientRect().top
+        if (top > line && !(atEnd && top < box.bottom)) {
           break
         }
         id = h.id
       }
-      for (const a of outline.querySelectorAll<HTMLElement>('a')) {
+      outline.querySelectorAll<HTMLElement>('a').forEach((a) => {
         const on = a.getAttribute('data-href') === `#${id}`
-        a.classList.toggle('current', on)
-        if (on) {
-          a.scrollIntoView({ block: 'nearest' })
+        if (on && !a.classList.contains('current')) {
+          a.scrollIntoView({ block: 'nearest' }) // keep the marked heading in view in a long outline
         }
-      }
+        a.classList.toggle('current', on)
+      })
     })
   }
   scroll.addEventListener('scroll', spy, { passive: true })

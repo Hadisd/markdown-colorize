@@ -140,3 +140,15 @@ test('footnote scan ignores every line of a fenced code block, and lists of maps
   assert.match(renderBlocks('---\nitems:\n  - name: x\n---\n').blocks[0].html, /<pre><code/)
   assert.match(renderBlocks('---\nitems:\n  - plain\n  - "q: r"\n---\n').blocks[0].html, /class="chip"/)
 })
+
+test('front matter: unindented lists, comments after quoted values, and quote escapes', () => {
+  const fm = renderBlocks(
+    "---\ntags:\n- one\n- two\ntitle: \"A \\\"quoted\\\" word\" # a comment\nnote: 'It''s fine'\nplain: value # comment\n---\n"
+  ).blocks[0].html
+  assert.match(fm, /class="chip"><span class="v-str">one<\/span>.*class="chip"><span class="v-str">two</)
+  assert.match(fm, /<dd><span class="v-str">A &quot;quoted&quot; word<\/span><\/dd>/)
+  assert.match(fm, /It's fine/)
+  assert.match(fm, /<dd><span class="v-str">value<\/span><\/dd>/)
+  assert.doesNotMatch(fm, /comment/)
+  assert.match(renderBlocks('---\n- stray\n---\n').blocks[0].html, /<pre><code/)
+})

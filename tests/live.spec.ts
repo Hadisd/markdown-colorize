@@ -107,3 +107,11 @@ test('tableCells finds each cell between unescaped pipes', () => {
     [' a ', ' b \\| c ', ' `x|y` ']
   )
 })
+
+test('a footnote mark is not styled as a link', () => {
+  const doc = 'See[^1] and [plain] here.\n\n[^1]: note\n'
+  const f = decorate(doc)
+  assert.ok(!has(f, (x) => x.cls === 'cm-link' && x.from === 3), 'no link style on [^1]')
+  assert.ok(has(f, (x) => x.cls === 'cm-fnref' && x.from === 3 && x.to === 7))
+  assert.ok(has(f, (x) => x.cls === 'cm-link' && x.from === doc.indexOf('[plain]')), 'ordinary brackets unchanged')
+})

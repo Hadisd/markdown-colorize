@@ -7,6 +7,7 @@ import { Decoration, EditorView, drawSelection, keymap, type DecorationSet } fro
 import { cursorLineDown, cursorLineUp, defaultKeymap, history, historyKeymap, indentLess, indentMore } from '@codemirror/commands'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { ensureSyntaxTree, syntaxTree } from '@codemirror/language'
+import type { SyntaxNode } from '@lezer/common'
 
 export type LiveOptions = {
   doc: string
@@ -166,6 +167,9 @@ export function buildDecorations(state: EditorState, options: DecoOptions): Deco
           return
         }
         case 'Link': {
+          if (state.sliceDoc(from, from + 2) === '[^') {
+            return false // a footnote mark, colored below
+          }
           const marks = n.node.getChildren('LinkMark')
           const open = marks[0]
           const close = marks[1]
@@ -326,6 +330,9 @@ const tableTab =
     }
     const selectCell = (lineFrom: number, text: string, index: number): void => {
       const cell = tableCells(text)[index]
+      if (!cell) {
+        return
+      }
       const raw = text.slice(cell.from, cell.to)
       const lead = raw.length - raw.trimStart().length
       const body = raw.trim()
@@ -361,6 +368,11 @@ const pasteLink = (event: ClipboardEvent, view: EditorView): boolean => {
   const label = view.state.sliceDoc(range.from, range.to)
   if (range.empty || label.includes('\n') || !/^https?:\/\/\S+$/.test(pasted)) {
     return false
+  }
+  for (let node: SyntaxNode | null = syntaxTree(view.state).resolveInner(range.from, 1); node; node = node.parent) {
+    if (/^(FencedCode|CodeBlock|InlineCode|Link|URL|Autolink)$/.test(node.name)) {
+      return false // pasting into code or an existing link stays a plain paste
+    }
   }
   event.preventDefault()
   const insert = `[${label}](${pasted})`

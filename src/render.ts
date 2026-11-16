@@ -400,8 +400,16 @@ type Prop = { key: string; values: string[]; list: boolean }
 
 const unquote = (raw: string): { text: string; quoted: boolean } => {
   const v = raw.trim()
-  const q = /^(["'])([\s\S]*)\1$/.exec(v)
-  return q ? { text: q[2], quoted: true } : { text: v.replace(/\s+#.*$/, ''), quoted: false }
+  // "double" allows backslash escapes, 'single' doubles its quote; either may be followed by a # comment.
+  const dq = /^"((?:[^"\\]|\\.)*)"(?:\s+#.*)?$/.exec(v)
+  if (dq) {
+    return { text: dq[1].replace(/\\(.)/g, '$1'), quoted: true }
+  }
+  const sq = /^'((?:[^']|'')*)'(?:\s+#.*)?$/.exec(v)
+  if (sq) {
+    return { text: sq[1].replace(/''/g, "'"), quoted: true }
+  }
+  return { text: v.replace(/\s+#.*$/, ''), quoted: false }
 }
 
 const splitInlineList = (inner: string): string[] | null => {
@@ -439,7 +447,7 @@ const parseProps = (yamlText: string): Prop[] | null => {
     if (line.trim() === '' || /^\s*#/.test(line)) {
       continue
     }
-    const item = /^\s+-(?:\s+(.*))?$/.exec(line)
+    const item = /^\s*-(?:\s+(.*))?$/.exec(line)
     if (item) {
       if (!openList) {
         return null
