@@ -88,3 +88,55 @@ test('replacing one block in the text changes only that block', () => {
     ['# One', 'Edited **text**', '- x']
   )
 })
+
+const html = (text: string): string =>
+  renderBlocks(text).blocks.map((b) => b.html).join('')
+
+test('footnotes: numbered by first use, linked both ways, each note its own block', () => {
+  const text = 'Beta[^b] then alpha[^a] and beta again[^b].\n\n[^a]: Alpha note.\n[^b]: Beta note\n    with a second line.\n'
+  const { blocks } = renderBlocks(text)
+  assert.deepEqual(slices(text), ['Beta[^b] then alpha[^a] and beta again[^b].', '[^a]: Alpha note.', '[^b]: Beta note\n    with a second line.'])
+  assert.match(blocks[0].html, /id="fnref-b"[^>]*><a href="#fn-b"[^>]*>1<\/a>/)
+  assert.match(blocks[0].html, /href="#fn-a"[^>]*>2<\/a>/)
+  assert.equal((blocks[0].html.match(/id="fnref-b"/g) ?? []).length, 1)
+  assert.match(blocks[1].html, /id="fn-a"[^>]*><span class="fn-num">2<\/span>/)
+  assert.match(blocks[2].html, /with a second line/)
+  assert.match(blocks[2].html, /href="#fnref-b"/)
+})
+
+test('footnotes: an undefined reference and code stay plain text', () => {
+  assert.match(html('Nothing[^x] here.'), /Nothing\[\^x\] here/)
+  assert.doesNotMatch(html('```\n[^a]: not a note\n```\n\nText[^a]\n'), /fn-ref/)
+})
+
+test('==marked== text and :emoji: shortcodes', () => {
+  assert.match(html('a ==very *big*== deal'), /<mark>very <em>big<\/em><\/mark>/)
+  assert.doesNotMatch(html('if a == b and b == c'), /<mark>/)
+  assert.match(html('Ship it :rocket: at 10:30:15 :nope:'), /Ship it 🚀 at 10:30:15 :nope:/)
+  assert.match(html('`:rocket:`'), /:rocket:/)
+})
+
+test('callouts: extra kinds, custom titles, and the five GitHub ones', () => {
+  assert.match(html('> [!NOTE]\n> Plain'), /callout-note"><div class="callout-title">Note<\/div><p>Plain/)
+  assert.match(html('> [!bug] Crash on **save**\n> Steps follow'), /callout-caution"><div class="callout-title">Crash on <strong>save<\/strong><\/div><p>Steps follow/)
+  assert.match(html('> [!success]\n> Done'), /callout-tip"><div class="callout-title">Success/)
+  assert.doesNotMatch(html('> [!unknown]\n> text'), /class="callout/)
+})
+
+test('front matter: flat YAML becomes a property list, anything else stays code', () => {
+  const flat = renderBlocks('---\ntitle: "Hi: there"\ndraft: false\ntags: [a, "b, c"]\nauthors:\n  - Ann\n  - Bo\n---\n\nBody\n').blocks[0].html
+  assert.match(flat, /<dt>title<\/dt><dd><span class="v-str">Hi: there<\/span>/)
+  assert.match(flat, /<span class="v-bool">false<\/span>/)
+  assert.match(flat, /<span class="chip"><span class="v-str">b, c<\/span>/)
+  assert.match(flat, /Ann.*Bo/)
+  const nested = renderBlocks('---\nseo:\n  title: x\n---\n').blocks[0].html
+  assert.match(nested, /<pre><code class="hljs">/)
+  assert.match(renderBlocks('---\nt: <img src=x onerror=alert(1)>\n---\n').blocks[0].html, /&lt;img/)
+})
+
+test('footnote scan ignores every line of a fenced code block, and lists of maps stay code', () => {
+  assert.doesNotMatch(html('```\nfirst line\n[^a]: not a note\n```\n\nText[^a]\n'), /fn-ref/)
+  assert.doesNotMatch(html('~~~\nx\ny\n[^a]: no\n\nz\n~~~\n\nText[^a]\n'), /fn-ref/)
+  assert.match(renderBlocks('---\nitems:\n  - name: x\n---\n').blocks[0].html, /<pre><code/)
+  assert.match(renderBlocks('---\nitems:\n  - plain\n  - "q: r"\n---\n').blocks[0].html, /class="chip"/)
+})

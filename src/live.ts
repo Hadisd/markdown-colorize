@@ -98,6 +98,7 @@ export function buildDecorations(state: EditorState, options: DecoOptions): Deco
     addLines(0, Math.max(0, fmEnd - 1), 'cm-front')
   }
 
+  const codeSpans: [number, number][] = fmEnd > 0 ? [[0, fmEnd]] : []
   const tree = ensureSyntaxTree(state, doc.length, 150) ?? syntaxTree(state)
   tree.iterate({
     enter: (n) => {
@@ -105,6 +106,9 @@ export function buildDecorations(state: EditorState, options: DecoOptions): Deco
         return false
       }
       const { name, from, to } = n
+      if (name === 'FencedCode' || name === 'InlineCode' || name === 'CodeBlock') {
+        codeSpans.push([from, to])
+      }
       let m: RegExpExecArray | null
       if ((m = /^ATXHeading([1-6])$/.exec(name))) {
         addLine(from, `cm-h cm-h${m[1]}`)
@@ -213,6 +217,23 @@ export function buildDecorations(state: EditorState, options: DecoOptions): Deco
     }
   })
 
+  // Footnote marks and ==highlights==, which the Markdown parser does not know. Code is left alone.
+  const text = doc.sliceString(0)
+  const inCode = (pos: number): boolean => codeSpans.some(([a, b]) => pos >= a && pos < b)
+  for (const m of text.matchAll(/\[\^[^\]\s]+\]|==(?=\S)(?:[^=\n]|=(?!=))+?(?<=\S)==/g)) {
+    const at = m.index ?? 0
+    if (inCode(at)) {
+      continue
+    }
+    if (m[0].startsWith('[')) {
+      mark(at, at + m[0].length, 'cm-fnref')
+    } else {
+      mark(at, at + 2, 'cm-syntax')
+      mark(at + 2, at + m[0].length - 2, 'cm-mark')
+      mark(at + m[0].length - 2, at + m[0].length, 'cm-syntax')
+    }
+  }
+
   for (const [start, classes] of lineClasses) {
     items.push(Decoration.line({ class: [...classes].join(' ') }).range(start))
   }
@@ -271,6 +292,82 @@ const listIndent =
         : indentLess(view)
       : false
 
+const TABLE_ROW = /^\s*\|.*\|\s*$/
+const TABLE_RULE = /^\s*\|[\s:|-]*-[\s:|-]*\|\s*$/
+
+/** The text between each pair of unescaped pipes in a table row, as offsets into the line. Exported for tests. */
+export function tableCells(line: string): { from: number; to: number }[] {
+  const pipes: number[] = []
+  let code = false
+  for (let i = 0; i < line.length; i++) {
+    if (line[i] === '\\') {
+      i++
+    } else if (line[i] === '`') {
+      code = !code
+    } else if (line[i] === '|' && !code) {
+      pipes.push(i)
+    }
+  }
+  const cells: { from: number; to: number }[] = []
+  for (let k = 0; k + 1 < pipes.length; k++) {
+    cells.push({ from: pipes[k] + 1, to: pipes[k + 1] })
+  }
+  return cells
+}
+
+/** Tab and Shift+Tab move between table cells; Tab in the last cell adds a row. Elsewhere they are left alone. */
+const tableTab =
+  (forward: boolean) =>
+  (view: EditorView): boolean => {
+    const { doc } = view.state
+    const line = doc.lineAt(view.state.selection.main.head)
+    if (!TABLE_ROW.test(line.text)) {
+      return false
+    }
+    const selectCell = (lineFrom: number, text: string, index: number): void => {
+      const cell = tableCells(text)[index]
+      const raw = text.slice(cell.from, cell.to)
+      const lead = raw.length - raw.trimStart().length
+      const body = raw.trim()
+      const anchor = lineFrom + cell.from + (body === '' ? Math.min(1, raw.length) : lead)
+      view.dispatch({ selection: EditorSelection.range(anchor, anchor + body.length), scrollIntoView: true })
+    }
+    const cells = tableCells(line.text)
+    const head = view.state.selection.main.head - line.from
+    const here = Math.max(0, cells.filter((c) => c.from <= head).length - 1)
+    const next = here + (forward ? 1 : -1)
+    if (next >= 0 && next < cells.length) {
+      selectCell(line.from, line.text, next)
+      return true
+    }
+    let n = line.number + (forward ? 1 : -1)
+    if (n >= 1 && n <= doc.lines && TABLE_RULE.test(doc.line(n).text)) {
+      n += forward ? 1 : -1
+    }
+    if (n >= 1 && n <= doc.lines && TABLE_ROW.test(doc.line(n).text)) {
+      const target = doc.line(n)
+      selectCell(target.from, target.text, forward ? 0 : tableCells(target.text).length - 1)
+    } else if (forward) {
+      const row = `\n|${'   |'.repeat(cells.length)}`
+      view.dispatch({ changes: { from: line.to, insert: row }, selection: { anchor: line.to + 3 }, scrollIntoView: true })
+    }
+    return true
+  }
+
+/** Pasting a web address over selected text makes it a link. */
+const pasteLink = (event: ClipboardEvent, view: EditorView): boolean => {
+  const range = view.state.selection.main
+  const pasted = event.clipboardData?.getData('text/plain').trim() ?? ''
+  const label = view.state.sliceDoc(range.from, range.to)
+  if (range.empty || label.includes('\n') || !/^https?:\/\/\S+$/.test(pasted)) {
+    return false
+  }
+  event.preventDefault()
+  const insert = `[${label}](${pasted})`
+  view.dispatch({ changes: { from: range.from, to: range.to, insert }, selection: { anchor: range.from + insert.length } })
+  return true
+}
+
 // ---------------------------------------------------------------- the editor
 
 export function createLive(parent: HTMLElement, options: LiveOptions): LiveEditor {
@@ -327,7 +424,7 @@ export function createLive(parent: HTMLElement, options: LiveOptions): LiveEdito
       { key: 'Mod-Enter', run: leave },
       { key: 'ArrowDown', run: boundary('down') },
       { key: 'ArrowUp', run: boundary('up') },
-      { key: 'Tab', run: listIndent(true), shift: listIndent(false) },
+      { key: 'Tab', run: (v) => tableTab(true)(v) || listIndent(true)(v), shift: (v) => tableTab(false)(v) || listIndent(false)(v) },
       { key: 'Mod-b', run: toggleWrap('**') },
       { key: 'Mod-i', run: toggleWrap('*') },
       ...defaultKeymap,
@@ -339,6 +436,7 @@ export function createLive(parent: HTMLElement, options: LiveOptions): LiveEdito
       }
     }),
     EditorView.domEventHandlers({
+      paste: (event, view) => pasteLink(event, view),
       mousedown: (event, view) => {
         if (event.button === 0 && (event.metaKey || event.ctrlKey)) {
           const url = linkAt(view, event)

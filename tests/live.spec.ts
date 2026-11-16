@@ -4,7 +4,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { EditorState } from '@codemirror/state'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
-import { buildDecorations, htmlToRanges } from '../src/live.ts'
+import { buildDecorations, htmlToRanges, tableCells } from '../src/live.ts'
 
 const options = {
   highlight: (code: string, lang: string) =>
@@ -85,4 +85,25 @@ test('htmlToRanges maps highlight.js HTML back onto the plain code', () => {
     { from: 13, to: 14, cls: 'hljs-title function_' }
   ])
   assert.equal(htmlToRanges('<span class="x">unclosed'), null)
+})
+
+test('footnote marks and ==highlights== are colored, but not inside code', () => {
+  const doc = 'Note[^1] and ==mark== but `[^2] ==x==` stays.\n\n[^1]: text\n'
+  const f = decorate(doc)
+  const ref = doc.indexOf('[^1]')
+  assert.ok(has(f, (x) => x.cls === 'cm-fnref' && x.from === ref && x.to === ref + 4))
+  const m = doc.indexOf('==mark==')
+  assert.ok(has(f, (x) => x.cls === 'cm-mark' && x.from === m + 2 && x.to === m + 6))
+  assert.ok(has(f, (x) => x.cls === 'cm-syntax' && x.from === m && x.to === m + 2))
+  const code = doc.indexOf('`[^2]')
+  assert.ok(!has(f, (x) => (x.cls === 'cm-fnref' || x.cls === 'cm-mark') && x.from > code && x.from < code + 12))
+  assert.ok(has(f, (x) => x.cls === 'cm-fnref' && x.from === doc.indexOf('[^1]:')))
+})
+
+test('tableCells finds each cell between unescaped pipes', () => {
+  const line = '| a | b \\| c | `x|y` |'
+  assert.deepEqual(
+    tableCells(line).map((c) => line.slice(c.from, c.to)),
+    [' a ', ' b \\| c ', ' `x|y` ']
+  )
 })

@@ -96,6 +96,32 @@ export async function mountViewer(options: {
   document.body.append(shell)
   const find = mountFind({ bar, before: outlineBtn, docEl })
 
+  // The outline marks the heading you are reading.
+  let spyFrame = 0
+  const spy = (): void => {
+    cancelAnimationFrame(spyFrame)
+    spyFrame = requestAnimationFrame(() => {
+      if (outline.hidden) {
+        return
+      }
+      const line = scroll.getBoundingClientRect().top + 24
+      let id = ''
+      for (const h of docEl.querySelectorAll<HTMLElement>('h1[id], h2[id], h3[id], h4[id], h5[id], h6[id]')) {
+        if (h.getBoundingClientRect().top > line) {
+          break
+        }
+        id = h.id
+      }
+      for (const a of outline.querySelectorAll<HTMLElement>('a')) {
+        const on = a.getAttribute('data-href') === `#${id}`
+        a.classList.toggle('current', on)
+        if (on) {
+          a.scrollIntoView({ block: 'nearest' })
+        }
+      }
+    })
+  }
+  scroll.addEventListener('scroll', spy, { passive: true })
   let lastLook = ''
   const applyPrefs = (): void => {
     const root = document.documentElement
@@ -125,6 +151,7 @@ export async function mountViewer(options: {
       void renderDiagrams(docEl) // diagrams take their colors from the page, so they redraw with it
     }
     outline.hidden = !prefs.outline
+    spy()
     outlineBtn.setAttribute('aria-pressed', String(prefs.outline))
     paletteBtn.setAttribute('aria-pressed', String(!prefs.vivid))
   }
@@ -178,6 +205,7 @@ export async function mountViewer(options: {
     outline.replaceChildren(
       ...toc.map((h) => el('a', { href: `#${h.id}`, 'data-href': `#${h.id}`, class: `d${h.depth}` }, h.text))
     )
+    spy()
   }
   const showInfo = (words: number): void => {
     info.textContent = words === 0 ? '' : `${words.toLocaleString()} words · ${Math.max(1, Math.round(words / 220))} min read`
@@ -346,7 +374,8 @@ export async function mountViewer(options: {
       } catch {
         pieces = []
       }
-      hasHeading = pieces.some((b) => /^<h[1-6]\b/.test(b.html))
+      // Heading ids and footnote numbers depend on the whole page, so such blocks trigger a redraw.
+      hasHeading = pieces.some((b) => /^<h[1-6]\b/.test(b.html) || /fn-ref|fn-def/.test(b.html)) || /\[\^[^\]\s]+\]/.test(text)
       box.outerHTML = pieces.length
         ? pieces.map((b) => blockHtml(b, pre.length)).join('')
         : `<div class="blk" tabindex="-1" data-from="${pre.length}" data-to="${pre.length + text.length}"><p>${escapeText(text)}</p></div>`

@@ -82,7 +82,10 @@ export function mountFind(parts: {
     node.textContent = text
     return node
   }
-  const toggle = mk('button', { type: 'button', title: 'Find in this file (Ctrl/Cmd+F)' }, 'Find')
+  const toggle = mk('button', { type: 'button', class: 'icon', title: 'Find in this file (Ctrl/Cmd+F)', 'aria-label': 'Find' })
+  // A magnifying glass drawn as SVG, so it looks the same with any font.
+  toggle.innerHTML =
+    '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display:block"><circle cx="6.8" cy="6.8" r="4.3"/><path d="M10 10l3.8 3.8"/></svg>'
   const row = mk('div', { id: 'find', role: 'search' })
   const input = mk('input', { type: 'search', placeholder: 'Find', 'aria-label': 'Find in this file', spellcheck: 'false' })
   const count = mk('span', { class: 'count', 'aria-live': 'polite' })

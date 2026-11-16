@@ -29,6 +29,7 @@ import swift from 'highlight.js/lib/languages/swift'
 import typescript from 'highlight.js/lib/languages/typescript'
 import xml from 'highlight.js/lib/languages/xml'
 import yaml from 'highlight.js/lib/languages/yaml'
+import { EMOJI } from './emoji'
 
 const LANGS: Record<string, Parameters<typeof hljs.registerLanguage>[1]> = {
   bash, c, cpp, csharp, css, diff, dockerfile, go, ini, java, javascript, json, kotlin,
@@ -219,12 +220,21 @@ const JSX_START = /^\s*(<>|<\/>|<\/?[A-Z][\w.]*|<[a-z][\w-]*\s[^>]*\{)/
 // At column 0 only: a component on its own line(s), such as <Chart data={...} /> or </Tabs>.
 const JSX_BLOCK_START = /^(<>|<\/>|<\/?[A-Z][\w.]*)/
 
-// ---- callouts, like GitHub's  > [!NOTE] ----
+// ---- callouts, like GitHub's  > [!NOTE]  (and Obsidian's extra kinds, with an optional title) ----
 
-const CALLOUTS: Record<string, string> = {
-  note: 'Note', tip: 'Tip', important: 'Important', warning: 'Warning', caution: 'Caution'
+// Every kind maps to one of five looks.
+const CALLOUT_LOOK: Record<string, string> = {
+  note: 'note', info: 'note', abstract: 'note', summary: 'note', tldr: 'note', todo: 'note',
+  tip: 'tip', hint: 'tip', success: 'tip', check: 'tip', done: 'tip',
+  important: 'important', example: 'important', quote: 'important', cite: 'important',
+  warning: 'warning', attention: 'warning', question: 'warning', help: 'warning', faq: 'warning',
+  caution: 'caution', danger: 'caution', error: 'caution', failure: 'caution', fail: 'caution',
+  missing: 'caution', bug: 'caution'
 }
-const CALLOUT_RE = /^<p>\s*\[!(note|tip|important|warning|caution)\][ \t]*(?:<br\s*\/?>|\n)?\s*/i
+const CALLOUT_RE = new RegExp(
+  `^<p>\\s*\\[!(${Object.keys(CALLOUT_LOOK).join('|')})\\][+-]?[ \\t]*((?:(?!<br\\s*/?>)[^\\n])*?)[ \\t]*(?:<br\\s*/?>|\\n|(?=</p>))\\s*`,
+  'i'
+)
 
 // ---- math: $inline$, $$display$$ and ```math blocks, drawn by KaTeX ----
 
@@ -279,9 +289,230 @@ const mathBlock: TokenizerAndRendererExtension = {
   renderer: (token) => renderMath((token as MathToken).text, true)
 }
 
+
+// ---- ==highlighted== text and :emoji: shortcodes ----
+
+type InlineToken = Tokens.Generic & { text: string }
+
+const markInline: TokenizerAndRendererExtension = {
+  name: 'markInline',
+  level: 'inline',
+  start: (src) => src.indexOf('=='),
+  tokenizer(src): InlineToken | undefined {
+    const m = /^==(?=\S)((?:\\.|[^=\n\\]|=(?!=))+?)(?<=\S)==/.exec(src)
+    return m ? { type: 'markInline', raw: m[0], text: m[1], tokens: this.lexer.inlineTokens(m[1]) } : undefined
+  },
+  renderer(token): string {
+    return `<mark>${this.parser.parseInline(token.tokens ?? [])}</mark>`
+  }
+}
+
+const emojiInline: TokenizerAndRendererExtension = {
+  name: 'emojiInline',
+  level: 'inline',
+  start: (src) => src.indexOf(':'),
+  tokenizer(src): InlineToken | undefined {
+    const m = /^:([a-z0-9_+-]+):/.exec(src)
+    return m && Object.hasOwn(EMOJI, m[1]) ? { type: 'emojiInline', raw: m[0], text: EMOJI[m[1]] } : undefined
+  },
+  renderer: (token) => (token as InlineToken).text
+}
+
+// ---- footnotes: text[^1] and, anywhere in the file, [^1]: the note ----
+
+type Notes = { number: Map<string, number>; seenRef: Set<string> }
+const noteId = (label: string): string => label.replace(/[^\w-]/g, '_')
+
+/** Numbers the footnotes in the order they are first used. Needs the whole file, so it runs once up front. */
+const scanNotes = (text: string): Notes => {
+  const bare = text
+    .replace(/^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:\n {0,3}\1[`~]*[ \t]*(?=\n|(?![\s\S]))|(?![\s\S]))/gm, '')
+    .replace(/`[^`\n]*`/g, '')
+  const defined = new Set<string>()
+  const defs = bare.replace(/^\[\^([^\]\s]+)\]:/gm, (_all, label: string) => {
+    defined.add(label)
+    return ''
+  })
+  const number = new Map<string, number>()
+  for (const m of defs.matchAll(/\[\^([^\]\s]+)\]/g)) {
+    if (defined.has(m[1]) && !number.has(m[1])) {
+      number.set(m[1], number.size + 1)
+    }
+  }
+  for (const label of defined) {
+    if (!number.has(label)) {
+      number.set(label, number.size + 1) // a note nobody points to still gets a number
+    }
+  }
+  return { number, seenRef: new Set() }
+}
+
+type NoteDef = Tokens.Generic & { label: string }
+
+const footnoteExtensions = (notes: Notes): TokenizerAndRendererExtension[] => [
+  {
+    name: 'footnoteRef',
+    level: 'inline',
+    start: (src) => src.indexOf('[^'),
+    tokenizer(src): NoteDef | undefined {
+      const m = /^\[\^([^\]\s]+)\]/.exec(src)
+      return m && notes.number.has(m[1]) ? { type: 'footnoteRef', raw: m[0], label: m[1] } : undefined
+    },
+    renderer(token): string {
+      const label = (token as NoteDef).label
+      const id = noteId(label)
+      const first = !notes.seenRef.has(label)
+      notes.seenRef.add(label)
+      return (
+        `<sup class="fn-ref"${first ? ` id="fnref-${id}"` : ''}>` +
+        `<a href="#fn-${id}" data-href="#fn-${id}" title="Go to the note">${notes.number.get(label)}</a></sup>`
+      )
+    }
+  },
+  {
+    name: 'footnoteDef',
+    level: 'block',
+    start: (src) => src.match(/^\[\^[^\]\s]+\]:/m)?.index,
+    tokenizer(src): NoteDef | undefined {
+      // The first line, then any lines (blank ones allowed) indented by two spaces or a tab.
+      const m = /^\[\^([^\]\s]+)\]:[ \t]*([^\n]*(?:\n(?:[ \t]*\n)*(?: {2,}|\t)[^\n]*)*)(?:\n|$)/.exec(src)
+      if (!m || !notes.number.has(m[1])) {
+        return undefined
+      }
+      const text = m[2].replace(/\n(?: {1,4}|\t)/g, '\n')
+      return { type: 'footnoteDef', raw: m[0], label: m[1], tokens: this.lexer.blockTokens(text, []) }
+    },
+    renderer(token): string {
+      const label = (token as NoteDef).label
+      const id = noteId(label)
+      return (
+        `<div class="fn-def" id="fn-${id}"><span class="fn-num">${notes.number.get(label)}</span>` +
+        `<div class="fn-body">${this.parser.parse(token.tokens ?? [])}</div>` +
+        `<a class="fn-back" href="#fnref-${id}" data-href="#fnref-${id}" title="Back to the text">↩</a></div>\n`
+      )
+    }
+  }
+]
+
+// ---- front matter: simple YAML (key: value, [a, b] or a "- item" list) becomes a property list ----
+
+type Prop = { key: string; values: string[]; list: boolean }
+
+const unquote = (raw: string): { text: string; quoted: boolean } => {
+  const v = raw.trim()
+  const q = /^(["'])([\s\S]*)\1$/.exec(v)
+  return q ? { text: q[2], quoted: true } : { text: v.replace(/\s+#.*$/, ''), quoted: false }
+}
+
+const splitInlineList = (inner: string): string[] | null => {
+  const out: string[] = []
+  let cur = ''
+  let quote = ''
+  for (const ch of inner) {
+    if (quote) {
+      cur += ch
+      quote = ch === quote ? '' : quote
+    } else if (ch === '"' || ch === "'") {
+      quote = ch
+      cur += ch
+    } else if (ch === '[' || ch === '{') {
+      return null
+    } else if (ch === ',') {
+      out.push(cur)
+      cur = ''
+    } else {
+      cur += ch
+    }
+  }
+  if (quote) {
+    return null
+  }
+  out.push(cur)
+  return out.map((p) => p.trim()).filter((p) => p !== '')
+}
+
+/** null when the YAML is more than flat properties; the caller then shows it as code. */
+const parseProps = (yamlText: string): Prop[] | null => {
+  const props: Prop[] = []
+  let openList: Prop | null = null
+  for (const line of yamlText.split('\n')) {
+    if (line.trim() === '' || /^\s*#/.test(line)) {
+      continue
+    }
+    const item = /^\s+-(?:\s+(.*))?$/.exec(line)
+    if (item) {
+      if (!openList) {
+        return null
+      }
+      if (/^[^"'\s][^"']*?:(\s|$)/.test(item[1] ?? '')) {
+        return null // "- key: value" is a list of maps, not plain items
+      }
+      openList.values.push(item[1] ?? '')
+      continue
+    }
+    const kv = /^([A-Za-z0-9_][\w .-]*?):(?:[ \t]+(.*))?$/.exec(line.trimEnd())
+    if (!kv) {
+      return null
+    }
+    const value = (kv[2] ?? '').trim()
+    openList = null
+    if (value === '') {
+      openList = { key: kv[1], values: [], list: true }
+      props.push(openList)
+    } else if (/^[|>&*!{]/.test(value)) {
+      return null
+    } else if (value.startsWith('[')) {
+      const inner = /^\[(.*)\]\s*$/.exec(value)
+      const items = inner ? splitInlineList(inner[1]) : null
+      if (!items) {
+        return null
+      }
+      props.push({ key: kv[1], values: items, list: true })
+    } else {
+      props.push({ key: kv[1], values: [value], list: false })
+    }
+  }
+  return props.length ? props : null
+}
+
+const propValue = (raw: string): string => {
+  const { text, quoted } = unquote(raw)
+  const kind = quoted
+    ? 'str'
+    : /^(true|false|yes|no|on|off)$/i.test(text)
+      ? 'bool'
+      : /^[-+]?\d[\d_.]*$/.test(text)
+        ? 'num'
+        : /^\d{4}-\d{2}-\d{2}(?:[T ][\d:.]+(?:Z|[-+]\d{2}:?\d{2})?)?$/.test(text)
+          ? 'date'
+          : /^(null|~)$/i.test(text)
+            ? 'null'
+            : 'str'
+  return `<span class="v-${kind}">${escapeHtml(text)}</span>`
+}
+
+const frontMatterHtml = (yamlText: string): string => {
+  const props = parseProps(yamlText)
+  const head = '<div class="code-head"><span class="code-lang">front matter</span></div>'
+  if (!props) {
+    return `<div class="codeblock frontmatter">${head}<pre><code class="hljs">${highlight(yamlText, 'yaml')}</code></pre></div>\n`
+  }
+  const rows = props
+    .map((p) => {
+      const value = p.list
+        ? p.values.length
+          ? p.values.map((v) => `<span class="chip">${propValue(v)}</span>`).join('')
+          : '<span class="v-null">empty</span>'
+        : propValue(p.values[0])
+      return `<div class="prop"><dt>${escapeHtml(p.key)}</dt><dd>${value}</dd></div>`
+    })
+    .join('')
+  return `<div class="codeblock frontmatter compact"><dl class="props" title="front matter">${rows}</dl></div>\n`
+}
+
 // ---- main ----
 
-const makeMarked = (toc: TocEntry[], seen: Map<string, number>, mdx: boolean): Marked => {
+const makeMarked = (toc: TocEntry[], seen: Map<string, number>, mdx: boolean, notes: Notes): Marked => {
   const md = new Marked({ gfm: true, breaks: false })
   const slug = (text: string): string => {
     const base =
@@ -291,7 +522,7 @@ const makeMarked = (toc: TocEntry[], seen: Map<string, number>, mdx: boolean): M
     seen.set(base, n + 1)
     return n === 0 ? base : `${base}-${n}`
   }
-  md.use({ extensions: [mathBlock, mathInline] })
+  md.use({ extensions: [mathBlock, mathInline, markInline, emojiInline, ...footnoteExtensions(notes)] })
   md.use({
     renderer: {
       heading({ tokens, depth }: Tokens.Heading): string {
@@ -332,7 +563,9 @@ const makeMarked = (toc: TocEntry[], seen: Map<string, number>, mdx: boolean): M
         const m = CALLOUT_RE.exec(body)
         if (m) {
           const kind = m[1].toLowerCase()
-          return `<div class="callout callout-${kind}"><div class="callout-title">${CALLOUTS[kind]}</div>${body.replace(CALLOUT_RE, '<p>')}</div>\n`
+          const title = m[2].trim() || kind[0].toUpperCase() + kind.slice(1)
+          const rest = body.replace(CALLOUT_RE, '<p>').replace(/^<p><\/p>\s*/, '')
+          return `<div class="callout callout-${CALLOUT_LOOK[kind]}"><div class="callout-title">${title}</div>${rest}</div>\n`
         }
         return `<blockquote>${body}</blockquote>\n`
       },
@@ -440,7 +673,7 @@ export function renderBlocks(source: string, options: RenderOptions = {}): Block
   const mdx = options.mdx === true
   const text = source.replace(/\r\n?/g, '\n')
   const toc: TocEntry[] = []
-  const md = makeMarked(toc, new Map(), mdx)
+  const md = makeMarked(toc, new Map(), mdx, scanNotes(text))
   const blocks: Block[] = []
   const front = /^---[ \t]*\n([\s\S]*?)\n---[ \t]*(?:\n|$)/.exec(text)
   let base = 0
@@ -449,7 +682,7 @@ export function renderBlocks(source: string, options: RenderOptions = {}): Block
     blocks.push({
       from: 0,
       to: raw.length,
-      html: `<div class="codeblock frontmatter"><div class="code-head"><span class="code-lang">front matter</span></div><pre><code class="hljs">${highlight(front[1], 'yaml')}</code></pre></div>\n`
+      html: frontMatterHtml(front[1])
     })
     base = front[0].length
   }
