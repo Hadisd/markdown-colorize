@@ -8,7 +8,7 @@ draft: false
 
 A **colorful** reading view for *Markdown*, with `inline code`, ~~strikethrough~~ and [links](https://example.com).
 
-## Headings keep their own colors
+## Headings keep their own colors 
 
 ### Third level
 
