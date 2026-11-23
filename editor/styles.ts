@@ -130,6 +130,11 @@ li::marker { color: var(--lav); }
 ul ul li::marker { color: var(--cyan); }
 ul ul ul li::marker { color: var(--green); }
 .task { font-size: 1.05em; } .task.done { color: var(--green); } .task.todo { color: var(--dim); }
+button.task { appearance: none; background: none; border: 0; padding: 0; margin: 0; font-family: inherit;
+  line-height: inherit; vertical-align: baseline; cursor: pointer; border-radius: 3px; }
+button.task:hover { filter: brightness(1.25); }
+button.task:focus-visible { outline: 2px solid var(--lav); outline-offset: 1px; }
+#doc:not(.editable) button.task { cursor: default; pointer-events: none; }
 blockquote { margin: 1em 0; padding: .1em 1em; border-left: 3px solid var(--lav); color: var(--dim);
   background: color-mix(in srgb, var(--lav) 7%, transparent); border-radius: 0 6px 6px 0; }
 code.ic { font-family: var(--md-code-font, ui-monospace, "SF Mono", Menlo, monospace); font-size: .88em; color: var(--mint);

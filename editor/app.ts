@@ -6,6 +6,7 @@ import { mountFind } from './find'
 import { createImageLoader, showImages } from './images'
 import { PageHistory } from './history'
 import { CSS } from './styles'
+import { taskMarks, toggleTask } from './tasks'
 import { start } from './sync'
 
 // Orca does not tell a plugin frame which fonts the person picked, so fonts are plugin settings
@@ -531,6 +532,42 @@ export async function mountViewer(options: {
     if (p.blk.isConnected) {
       startEdit(p.blk, p.x, p.y)
     }
+  })
+
+  // ---- task boxes: a click ticks or clears the box in the file, without opening the block's editor
+  // (mousedown above counts a button as interactive). One click is one undo step.
+  docEl.addEventListener('click', (event) => {
+    const box = (event.target as HTMLElement).closest<HTMLButtonElement>('button.task')
+    const blk = box?.closest<HTMLElement>('.blk')
+    if (!box || !blk || !canEdit || editing?.el === blk) {
+      return
+    }
+    event.preventDefault()
+    endEdit() // another block being edited: finish it first, so this block's place in the file is current
+    const from = Number(blk.dataset.from)
+    const to = Number(blk.dataset.to)
+    const boxes = Array.from(blk.querySelectorAll('button.task'))
+    const marks = from >= 0 && to <= current.length ? taskMarks(current.slice(from, to)) : []
+    const at = from + (marks[boxes.indexOf(box)] ?? -1)
+    const next = marks.length === boxes.length ? toggleTask(current, at) : null
+    if (next === null) {
+      startEdit(blk, 0, 0, 'start') // the boxes and the Markdown do not line up: edit it by hand
+      return
+    }
+    if ((current[at] !== ' ') !== box.classList.contains('done')) {
+      draw(current) // the page is behind the file; show it as it is rather than guess
+      return
+    }
+    history.record(current, next)
+    syncHistoryButtons()
+    current = next
+    save()
+    const done = next[at] !== ' '
+    box.classList.toggle('done', done)
+    box.classList.toggle('todo', !done)
+    box.setAttribute('aria-pressed', String(done))
+    box.setAttribute('aria-label', done ? 'Done' : 'To do')
+    box.textContent = done ? '☑' : '☐'
   })
 
   // ---- undo and redo for the whole page (a block's own editor keeps history only while it is open)

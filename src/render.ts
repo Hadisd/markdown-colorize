@@ -638,7 +638,8 @@ const makeMarked = (toc: TocEntry[], seen: Map<string, number>, mdx: boolean, no
         return `<div class="table-wrap"><table><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>\n`
       },
       checkbox({ checked }: Tokens.Checkbox): string {
-        return `<span class="task ${checked ? 'done' : 'todo'}">${checked ? '☑' : '☐'}</span> `
+        // A button: the editor (editor/tasks.ts) ticks or clears it in the file on click.
+        return `<button type="button" class="task ${checked ? 'done' : 'todo'}" aria-pressed="${checked}" aria-label="${checked ? 'Done' : 'To do'}">${checked ? '☑' : '☐'}</button> `
       }
     }
   })

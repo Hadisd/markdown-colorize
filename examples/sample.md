@@ -37,12 +37,21 @@ A **colorful** reading view for *Markdown*, with `inline code`, ~~strikethrough~
 - Plain item
   - Nested item
     - Deeper item
-- [x] Finished task
-- [ ] Open task
 
 1. First
 2. Second
 3. Third
+
+## Tasks
+
+Click a box to tick or clear it; the file changes and `Ctrl/Cmd+Z` takes it back. Click the text to edit the item.
+
+- [x] Finished task
+- [ ] Open task
+  - [ ] Nested task
+1. [ ] Numbered task
+
+> - [ ] Task in a quote
 
 ## Table
 
