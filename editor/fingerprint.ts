@@ -7,7 +7,7 @@
 
 export type Fingerprint = { length: number; hash: string }
 
-export const normalizeText = (text: string): string => text.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n')
+const normalizeText = (text: string): string => text.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n')
 
 const hex = (n: number): string => (n >>> 0).toString(16).padStart(8, '0')
 

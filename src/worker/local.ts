@@ -29,7 +29,7 @@ export const imageMime = (file: string): string | null => TYPES[path.extname(fil
 export const isRemote = (src: string): boolean => /^https?:\/\//i.test(src.trim().replace(/^</, ''))
 
 /** The file path in an image source, or null for a URL of another kind. */
-export function parseImagePath(src: string): string | null {
+function parseImagePath(src: string): string | null {
   const s = src.trim().replace(/^<|>$/g, '')
   if (/^file:/i.test(s)) {
     try {

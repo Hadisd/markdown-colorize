@@ -40,6 +40,7 @@ An Orca editor gets the open file's text but not its path, and has no file syste
 
 ## Limits
 
+- An image that can't be found or downloaded shows its alt text. A path starting with `/` is read from the root of the Orca workspace the file is in, which may be a folder above the repository.
 - Raw HTML is cleaned to a short list of safe tags. MDX components are shown as code, not run.
 
 ## License
