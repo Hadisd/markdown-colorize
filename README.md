@@ -5,6 +5,7 @@ A colorful, editable view for Markdown and MDX files. It adds a **Colorized** vi
 ![Markdown Colorize preview](images/cover.png)
 
 - **Colored headings, quotes, tables, task lists and callouts** (`> [!NOTE]`, `[!TIP]`, `[!WARNING]` and more, plus Obsidian kinds like `[!info]` or `[!bug]` and a custom title: `> [!tip] My title`).
+- **Tables you can edit in place:** click a cell and type. Tab and Shift+Tab move between cells (Tab in the last cell adds a row), the up and down arrows move between rows, and Enter or Esc leaves. Right-click a cell (or press Shift+F10) to add or delete rows and columns, or to edit the table as Markdown. The table keeps its style (lined-up columns stay lined up), and each visit is one undo step.
 - **Task lists you can tick:** click a `- [ ]` box to tick or clear it in the file (`Ctrl/Cmd+Z` takes it back); click the text to edit the item.
 - **Footnotes** (`[^1]` with `[^1]: note`), `==highlighted==` text and `:emoji:` shortcodes.
 - **Front matter** shown as a property list: keys, values and tag chips.

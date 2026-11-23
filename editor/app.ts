@@ -7,6 +7,7 @@ import { createImageLoader, showImages } from './images'
 import { PageHistory } from './history'
 import { CSS } from './styles'
 import { taskMarks, toggleTask } from './tasks'
+import { mountTableEditing } from './tableEdit'
 import { start } from './sync'
 
 // Orca does not tell a plugin frame which fonts the person picked, so fonts are plugin settings
@@ -420,6 +421,7 @@ export async function mountViewer(options: {
     if (!canEdit || !options.editor) {
       return
     }
+    tables.finish()
     endEdit()
     clearTimeout(redrawTimer)
     let box: HTMLElement
@@ -502,7 +504,7 @@ export async function mountViewer(options: {
       }
       pressed = {
         blk: target.closest<HTMLElement>('.blk'),
-        interactive: !!target.closest('a, button, [data-href], .copy, .anchor, summary, input, select, textarea'),
+        interactive: !!target.closest('a, button, [data-href], .copy, .anchor, summary, input, select, textarea, [contenteditable]'),
         x: event.clientX,
         y: event.clientY
       }
@@ -529,9 +531,41 @@ export async function mountViewer(options: {
       }
       return
     }
+    const cell = target.closest<HTMLElement>('td, th')
+    if (cell && p.blk.contains(cell) && tables.start(cell)) {
+      return // a table cell is edited in place
+    }
     if (p.blk.isConnected) {
       startEdit(p.blk, p.x, p.y)
     }
+  })
+  docEl.addEventListener('contextmenu', (event) => {
+    const cell = (event.target as HTMLElement).closest<HTMLElement>('td, th')
+    if (cell && !editing && tables.menu(cell, event.clientX, event.clientY)) {
+      event.preventDefault()
+    }
+  })
+
+  // ---- tables: a click on a cell edits that cell in place (see tableEdit.ts)
+  const tables = mountTableEditing({
+    docEl,
+    canEdit: () => canEdit && !editing,
+    text: () => current,
+    write: (next) => {
+      current = next
+      save()
+    },
+    record: (before, after) => {
+      history.record(before, after)
+      syncHistoryButtons()
+    },
+    render: (markdown) => renderBlocks(markdown, { mdx: options.mdx }).blocks.map((b) => b.html).join(''),
+    rendered: () => {
+      refreshMeta()
+      showImages(docEl, images)
+      find.refresh()
+    },
+    editMarkdown: (blk) => startEdit(blk, 0, 0, 'start')
   })
 
   // ---- task boxes: a click ticks or clears the box in the file, without opening the block's editor
@@ -575,6 +609,7 @@ export async function mountViewer(options: {
     if (editing) {
       return
     }
+    tables.finish()
     const result = kind === 'undo' ? history.undo(current) : history.redo(current)
     syncHistoryButtons()
     if (!result) {
@@ -596,7 +631,7 @@ export async function mountViewer(options: {
       return
     }
     const target = event.target as HTMLElement
-    if (editing || target.closest('input, textarea, .cm-editor')) {
+    if (editing || target.closest('input, textarea, .cm-editor, [contenteditable]')) {
       return // those have their own undo
     }
     const key = event.key.toLowerCase()
@@ -651,6 +686,7 @@ export async function mountViewer(options: {
       editing.editor.destroy()
       editing = null
     }
+    tables.drop()
     current = norm(text)
     history.clear() // steps made before another tool changed the file may no longer fit it
     syncHistoryButtons()

@@ -55,6 +55,8 @@ Click a box to tick or clear it; the file changes and `Ctrl/Cmd+Z` takes it back
 
 ## Table
 
+Click a cell to edit it; right-click for rows and columns.
+
 | Language   | Kind       |  Year |
 | ---------- | :--------: | ----: |
 | TypeScript | typed      |  2012 |

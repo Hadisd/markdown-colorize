@@ -145,6 +145,18 @@ details { margin: .8em 0; } summary { cursor: pointer; color: var(--cyan); }
 table { border-collapse: collapse; width: max-content; min-width: 60%; }
 th, td { border: 1px solid var(--line); padding: 6px 12px; text-align: left; }
 th { color: var(--cyan); background: color-mix(in srgb, var(--cyan) 9%, transparent); font-weight: 600; }
+/* A cell being edited shows its Markdown (editor/tableEdit.ts). */
+#doc.editable td, #doc.editable th { cursor: text; }
+th.cell-editing, td.cell-editing { outline: 2px solid var(--lav); outline-offset: -2px; white-space: pre-wrap;
+  font: .92em/1.5 var(--md-code-font, ui-monospace, monospace); color: var(--fg); caret-color: var(--lav); }
+.table-menu { position: fixed; z-index: 20; display: flex; flex-direction: column; min-width: 170px; padding: 4px;
+  background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgb(0 0 0 / .35);
+  font: 13px/1.3 var(--md-text-font, ui-sans-serif, system-ui, sans-serif); }
+.table-menu button { appearance: none; background: none; border: 0; color: var(--fg); font: inherit; text-align: left;
+  padding: 6px 10px; border-radius: 5px; cursor: pointer; }
+.table-menu button:hover:not(:disabled), .table-menu button:focus-visible { outline: none;
+  background: color-mix(in srgb, var(--lav) 22%, transparent); }
+.table-menu button:disabled { color: var(--dim); opacity: .55; cursor: default; }
 tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--fg) 3%, transparent); }
 [align="center"] { text-align: center; } [align="right"] { text-align: right; }
 
