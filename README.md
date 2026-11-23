@@ -24,19 +24,11 @@ A colorful, editable view for Markdown and MDX files. It adds a **Colorized** vi
 
 ## Use it
 
-1. Install **Markdown Colorize** from **Settings → Plugins** and approve what it asks for (see below).
+1. Install **Markdown Colorize** from **Settings → Plugins** and approve what it asks for.
 2. Open a `.md`, `.markdown` or `.mdx` file.
 3. Choose **Colorized** beside **Source**. `.mdx` files open in it by default.
 
 Changes save as you type, and the view follows edits made elsewhere. Toolbar choices, fonts and text size are saved in the plugin's settings. Orca doesn't share its fonts with plugins, so type your font names there.
-
-## What it can access
-
-An Orca editor gets the open file's text but not its path, and has no file system or network. To show images, the plugin runs a small Node.js worker (`worker.mjs`, built from `src/worker` and not minified), which is why Orca asks you to approve running code and reading your workspaces:
-
-- **Workspaces** (`workspace:read`): the worker lists your local workspaces to find the open file, by matching its text against the Markdown files in them.
-- **Files**: it reads image files (by file type) inside your local workspaces only, never from a `.git` folder. It writes nothing.
-- **Network**: web images are downloaded only from public addresses, never from your machine or private network (redirects are checked too), up to 32 MB each. Turn this off with the **Web images** setting.
 
 ## Limits
 
