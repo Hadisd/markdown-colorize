@@ -10,7 +10,8 @@ A colorful, editable view for Markdown and MDX files. It adds a **Colorized** vi
 - **Code blocks** highlighted for 25+ languages, with a Copy button.
 - **Math** with `$inline$`, `$$display$$` and `math` blocks.
 - **Diagrams** from `mermaid` blocks, drawn in the page's colors.
-- **Badges** from shields.io and similar, drawn as colored pills.
+- **Images** from files next to the document (`./img/a.png`, `/docs/a.png` from the workspace root) and from the web, plus `<img>` tags with their `width`.
+- **Badges** from shields.io and similar: fixed badges are drawn as colored pills, live ones (build status, version) load the real badge.
 - **MDX:** `import`, `export` and JSX show as code; the Markdown around them stays Markdown.
 - **Click to edit:** click any block (a paragraph, heading, list, table or code block) and it turns into an editor showing that block's Markdown, in color. Click away or press Esc to see it formatted again. `Ctrl/Cmd+B` and `Ctrl/Cmd+I` toggle bold and italic, and `Ctrl/Cmd+click` opens a link.
 - **Undo and redo** for the whole page (`Ctrl/Cmd+Z`, `Ctrl/Cmd+Shift+Z` or the toolbar buttons): each editing session is one step. The steps are cleared if another tool changes the file.
@@ -21,15 +22,22 @@ A colorful, editable view for Markdown and MDX files. It adds a **Colorized** vi
 
 ## Use it
 
-1. Install **Markdown Colorize** from **Settings → Plugins**.
+1. Install **Markdown Colorize** from **Settings → Plugins** and approve what it asks for (see below).
 2. Open a `.md`, `.markdown` or `.mdx` file.
 3. Choose **Colorized** beside **Source**. `.mdx` files open in it by default.
 
 Changes save as you type, and the view follows edits made elsewhere. Toolbar choices, fonts and text size are saved in the plugin's settings. Orca doesn't share its fonts with plugins, so type your font names there.
 
+## What it can access
+
+An Orca editor gets the open file's text but not its path, and has no file system or network. To show images, the plugin runs a small Node.js worker (`worker.mjs`, built from `src/worker` and not minified), which is why Orca asks you to approve running code and reading your workspaces:
+
+- **Workspaces** (`workspace:read`): the worker lists your local workspaces to find the open file, by matching its text against the Markdown files in them.
+- **Files**: it reads image files (by file type) inside your local workspaces only, never from a `.git` folder. It writes nothing.
+- **Network**: web images are downloaded only from public addresses, never from your machine or private network (redirects are checked too), up to 32 MB each. Turn this off with the **Web images** setting.
+
 ## Limits
 
-- Only images embedded in the Markdown (`data:` addresses) are drawn. Web images and files next to the document can't be loaded, so they show their alt text.
 - Raw HTML is cleaned to a short list of safe tags. MDX components are shown as code, not run.
 
 ## License

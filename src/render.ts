@@ -90,7 +90,10 @@ const safeUrl = (url: string): string | null => {
   return /^(https?:|mailto:|#|\/|\.{1,2}\/)/i.test(u) || /^[\w.-]+(\/[\w.@%+-]*)*$/.test(u) ? u : null
 }
 
-// ---- images and badges: nothing can be fetched, so badges are drawn from their own address ----
+// ---- images and badges ----
+// The frame fetches nothing itself: an image is drawn as a placeholder whose data-img the editor
+// (editor/images.ts) asks the plugin's worker for. Badges whose address says what they show are
+// drawn as pills straight away.
 
 const BADGE_HOST =
   /shields\.io|badgen\.net|badge\.fury\.io|codecov\.io|coveralls\.io|travis-ci\.(?:com|org)|circleci\.com|app\.codacy\.com|\/badge[./?]|\/badge\.svg|badge\.svg/i
@@ -122,8 +125,8 @@ const unescapeShield = (s: string): string => {
   return text.replace(/__/g, '\u0001').replace(/_/g, ' ').replace(/\u0001/g, '_')
 }
 
-const badgeHtml = (label: string, message: string, color: string, title: string): string =>
-  `<span class="badge" title="${escapeHtml(title)}">` +
+const badgeHtml = (label: string, message: string, color: string, title: string, load = ''): string =>
+  `<span class="badge"${load} title="${escapeHtml(title)}">` +
   (label ? `<span class="badge-l">${escapeHtml(label)}</span>` : '') +
   `<span class="badge-m" style="--b:${color}">${escapeHtml(message)}</span></span>`
 
@@ -144,25 +147,50 @@ const staticBadge = (src: string): string | null => {
   return null
 }
 
-const imageHtml = (alt: string, src: string): string => {
-  // Pictures embedded in the Markdown itself (data: URIs) are the only ones the frame can load:
-  // web addresses and files next to the document are out of its reach. The pattern keeps this to
+const IMG_SIZE = /^\d{1,4}(?:px|%)?$/
+
+/** The attributes that let the editor load an image: its address (web, file: or a path), alt text
+ *  and size. Nothing for an address of another kind. */
+const loadAttrs = (alt: string, src: string, size: { width?: string; height?: string } = {}): string => {
+  let s = src.trim().replace(/^<|>$/g, '')
+  if (s.startsWith('//')) {
+    s = `https:${s}`
+  }
+  const ok = s.length > 0 && s.length <= 4096 && (/^(?:https?|file):/i.test(s) || /^[a-z]:[\\/]/i.test(s) || !/^[a-z][a-z0-9+.-]*:/i.test(s))
+  if (!ok) {
+    return ''
+  }
+  let out = ` data-img="${escapeHtml(s)}" data-alt="${escapeHtml(alt)}"`
+  if (size.width && IMG_SIZE.test(size.width.trim())) {
+    out += ` data-w="${size.width.trim()}"`
+  }
+  if (size.height && IMG_SIZE.test(size.height.trim())) {
+    out += ` data-h="${size.height.trim()}"`
+  }
+  return out
+}
+
+const imageHtml = (alt: string, src: string, size: { width?: string; height?: string } = {}): string => {
+  // Pictures embedded in the Markdown (data: URIs) are drawn at once. The pattern keeps this to
   // base64 image data, so nothing else can ride in through `src`.
   if (/^data:image\/(?:png|jpe?g|gif|webp|svg\+xml);base64,[A-Za-z0-9+/=]+$/i.test(src.trim())) {
-    return `<img class="md-img" src="${src.trim()}" alt="${escapeHtml(alt)}">`
+    const img = `<img class="md-img" src="${src.trim()}" alt="${escapeHtml(alt)}">`
+    // The alt text as a caption below; editor/images.ts draws loaded images the same way.
+    return alt.trim() ? `<span class="md-fig">${img}<span class="md-cap">${escapeHtml(alt.trim())}</span></span>` : img
   }
   if (BADGE_HOST.test(src)) {
     const fixed = staticBadge(src)
     if (fixed) {
       return fixed
     }
-    // A live badge (build status, version, license...): its text is only known to the server,
-    // so show the alt text, split at "label: message" when it has that shape.
+    // A live badge (build status, version, license...): its text is only known to the server, so
+    // until the real one loads show the alt text, split at "label: message" when it has that shape.
     const text = alt.trim() || 'badge'
     const split = /^(.{1,40}?):\s+(.+)$/.exec(text)
-    return split ? badgeHtml(split[1], split[2], 'var(--lav)', src) : badgeHtml('', text, 'var(--lav)', src)
+    const load = loadAttrs(alt, src)
+    return split ? badgeHtml(split[1], split[2], 'var(--lav)', src, load) : badgeHtml('', text, 'var(--lav)', src, load)
   }
-  return `<span class="img-ph" title="${escapeHtml(src)}"><span class="img-ph-icon">▣</span>${escapeHtml(alt || 'image')}</span>`
+  return `<span class="img-ph"${loadAttrs(alt, src, size)} title="${escapeHtml(src)}"><span class="img-ph-icon">▣</span>${escapeHtml(alt || 'image')}</span>`
 }
 
 const cleanTag = (raw: string): string => {
@@ -186,7 +214,7 @@ const cleanTag = (raw: string): string => {
     }
   }
   if (name === 'img') {
-    return imageHtml(attrs.alt ?? '', attrs.src ?? '')
+    return imageHtml(attrs.alt ?? '', attrs.src ?? '', attrs)
   }
   let out = `<${name}`
   for (const [key, value] of Object.entries(attrs)) {
@@ -672,6 +700,50 @@ const splitMdx = (text: string): Segment[] => {
   return segments
 }
 
+// ---- HTML that wraps blocks: <p align="center"> or <details> with blank lines inside ----
+
+type Piece = { from: number; to: number; source: string; html?: boolean }
+
+const CONTAINER_TAGS = new Set([...SAFE_TAGS].filter((t) => !VOID_TAGS.has(t)))
+
+/** How many elements a piece of raw HTML leaves open (negative when it closes more). */
+const openTags = (html: string): number => {
+  let depth = 0
+  for (const m of html.replace(/<!--[\s\S]*?-->/g, '').matchAll(/<(\/?)([a-zA-Z][\w-]*)\b[^>]*?(\/?)>/g)) {
+    if (CONTAINER_TAGS.has(m[2].toLowerCase()) && !m[3]) {
+      depth += m[1] ? -1 : 1
+    }
+  }
+  return depth
+}
+
+/**
+ * Markdown cuts `<p align="center">`, a blank line, an image, a blank line and `</p>` into three
+ * pieces; GitHub joins their HTML back into one element. Drawn as separate blocks the browser would
+ * close the tag at once and lose the centering, so from an HTML piece that opens a tag to the piece
+ * that closes it is kept as one block. A tag that is never closed is left as it was.
+ */
+const joinWrappingHtml = (pieces: Piece[], text: string): Piece[] => {
+  const out: Piece[] = []
+  for (let i = 0; i < pieces.length; i++) {
+    let depth = pieces[i].html ? openTags(pieces[i].source) : 0
+    let j = i
+    while (depth > 0 && j + 1 < pieces.length && j - i < 200) {
+      j++
+      if (pieces[j].html) {
+        depth += openTags(pieces[j].source)
+      }
+    }
+    if (j > i && depth <= 0) {
+      out.push({ from: pieces[i].from, to: pieces[j].to, source: text.slice(pieces[i].from, pieces[j].to) })
+      i = j
+    } else {
+      out.push(pieces[i])
+    }
+  }
+  return out
+}
+
 /**
  * Renders the page as blocks, so the editor can swap one block for an editable copy of its own
  * Markdown. Each block is parsed on its own; link definitions are added to every block so
@@ -706,19 +778,19 @@ export function renderBlocks(source: string, options: RenderOptions = {}): Block
       continue
     }
     let pos = seg.offset
-    const found: { from: number; to: number; source: string }[] = []
+    const found: Piece[] = []
     for (const token of md.lexer(seg.text)) {
       const raw = token.raw
       if (token.type === 'def') {
         defs.push(raw.replace(/\s+$/, ''))
       } else if (token.type !== 'space') {
         const trimmed = raw.replace(/\s+$/, '')
-        found.push({ from: base + pos, to: base + pos + trimmed.length, source: trimmed })
+        found.push({ from: base + pos, to: base + pos + trimmed.length, source: trimmed, html: token.type === 'html' })
       }
       pos += raw.length
     }
     if (pos - seg.offset === seg.text.length) {
-      pending.push(...found)
+      pending.push(...joinWrappingHtml(found, text))
     } else {
       // The parser's pieces do not add up to the text, so offsets cannot be trusted: one block.
       const whole = seg.text.replace(/\s+$/, '')

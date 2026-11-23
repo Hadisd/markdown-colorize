@@ -3,6 +3,7 @@ import KATEX_CSS from './vendor/katex-css.js'
 import type { LiveEditor, LiveOptions } from './vendor/live.js'
 import { renderDiagrams } from './diagrams'
 import { mountFind } from './find'
+import { createImageLoader, showImages } from './images'
 import { PageHistory } from './history'
 import { CSS } from './styles'
 import { start } from './sync'
@@ -95,6 +96,12 @@ export async function mountViewer(options: {
   shell.append(bar, main)
   document.body.append(shell)
   const find = mountFind({ bar, before: outlineBtn, docEl })
+  // Images come from the plugin's worker; the document's text lets it find which file this is.
+  const images = createImageLoader({
+    request: (name, input) =>
+      orca.plugin ? orca.plugin.request(name, input as never) : Promise.reject(new Error('the plugin worker is not available')),
+    text: () => doc.value
+  })
 
   // The outline marks the heading you are reading.
   let spyFrame = 0
@@ -241,6 +248,7 @@ export async function mountViewer(options: {
     ensureTabStop()
     scroll.scrollTop = keep
     void renderDiagrams(docEl)
+    showImages(docEl, images)
     find.refresh()
   }
 
@@ -390,6 +398,7 @@ export async function mountViewer(options: {
     }
     refreshMeta()
     void renderDiagrams(docEl)
+    showImages(docEl, images)
     find.refresh()
     ensureTabStop()
     if (focusResult) {

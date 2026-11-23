@@ -200,6 +200,12 @@ sup.fn-ref a::before { content: "["; } sup.fn-ref a::after { content: "]"; }
 .callout-warning { --c: var(--orange); } .callout-caution { --c: var(--pink); }
 
 .md-img { max-width: 100%; height: auto; border-radius: 6px; vertical-align: middle; }
+.md-img.badge-img { border-radius: 3px; margin: 2px 3px 2px 0; }
+/* An image with its alt text below. Under a wide image the caption wraps at the image's width; under
+   a small one it may grow to 16em first, so "Height 48" does not break into one word per line. */
+.md-fig { display: inline-flex; flex-direction: column; align-items: center; max-width: 100%; vertical-align: middle; }
+.md-cap { width: max-content; max-width: 16em; min-width: 100%; margin-top: 4px; color: var(--dim);
+  font-size: .8em; line-height: 1.35; text-align: center; }
 .img-ph { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border: 1px dashed var(--line);
   border-radius: 6px; color: var(--dim); font-size: .9em; }
 .img-ph-icon { color: var(--lav); }

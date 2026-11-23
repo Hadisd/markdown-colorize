@@ -4,7 +4,7 @@
   "id": "markdown-colorize",
   "name": "Markdown Colorize",
   "version": "1.2.1",
-  "description": "A colorful, editable view for Markdown and MDX files: colored headings, code, math, diagrams, badges and an outline. Click a block to edit it.",
+  "description": "A colorful, editable view for Markdown and MDX files: colored headings, code, math, diagrams, images, badges and an outline. Click a block to edit it.",
   "license": "MIT",
   "repository": "https://github.com/Hadisd/markdown-colorize",
   "icon": "images/icon.png",
@@ -15,7 +15,8 @@
   "engines": {
     "orca": ">=1.4.248"
   },
-  "execution": "sandboxed-ui",
+  "execution": "trusted-worker",
+  "main": "worker.mjs",
   "pluginApi": 1,
   "contributes": {
     "customEditors": [
@@ -122,12 +123,22 @@
         "description": "Show the headings list.",
         "type": "boolean",
         "default": false
+      },
+      {
+        "key": "remoteImages",
+        "title": "Web images",
+        "description": "Download images with http or https addresses so the view can show them. Addresses on your machine or private network are never loaded.",
+        "type": "boolean",
+        "default": true
       }
     ]
   },
   "capabilities": [
     {
       "kind": "settings:own"
+    },
+    {
+      "kind": "workspace:read"
     }
   ]
 }

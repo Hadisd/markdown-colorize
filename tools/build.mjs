@@ -1,5 +1,7 @@
 // 1. Bundles src/render.ts (marked, highlight.js, KaTeX) into one ES module the editor imports.
-// 2. Writes KaTeX's stylesheet with its fonts inlined as data: URIs, because a plugin frame has
+// 2. Bundles the worker (src/worker/main.ts) into worker.mjs, which Orca runs in Node.js. It is not
+//    minified, so what it does with files and the network can be read in the file Orca runs.
+// 3. Writes KaTeX's stylesheet with its fonts inlined as data: URIs, because a plugin frame has
 //    no network and this avoids depending on how relative font URLs resolve.
 import { build } from 'esbuild'
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -37,6 +39,17 @@ await build({
   target: 'es2022',
   minify: true,
   legalComments: 'none',
+  logLevel: 'info'
+})
+
+await build({
+  entryPoints: ['src/worker/main.ts'],
+  outfile: 'worker.mjs',
+  bundle: true,
+  format: 'esm',
+  platform: 'node',
+  target: 'node20',
+  banner: { js: '// Markdown Colorize worker, built from src/worker by tools/build.mjs. Do not edit.' },
   logLevel: 'info'
 })
 

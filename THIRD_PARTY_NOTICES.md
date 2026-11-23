@@ -9,3 +9,4 @@
 - **Mermaid** 12.2.0, MIT License, Copyright (c) 2014-2022 Knut Sveidqvist. https://github.com/mermaid-js/mermaid
 - **Mermaid's own dependencies** are bundled into `editor/vendor/mermaid.js`, among them d3 (ISC and BSD licenses), dagre-d3-es (MIT), DOMPurify (Apache-2.0 or MPL-2.0), khroma (MIT) and lodash-es (MIT). Their licenses are in each package of the Mermaid dependency tree, which `npm ls mermaid` lists.
 - **CodeMirror** (`@codemirror/state`, `view`, `commands`, `language`, `lang-markdown`) and **Lezer** (`@lezer/markdown` and related parsers), MIT License, Copyright (C) 2018-2021 by Marijn Haverbeke and others. https://codemirror.net
+- **Richdown for Orca** (https://github.com/structworks/richdown-orca), MIT License, Copyright (c) 2026 mytooyo. The image worker in `src/worker` (and `worker.mjs`) follows its design: finding the open file by a fingerprint of its text, reading images in base64 chunks, and the public-address checks for web images.

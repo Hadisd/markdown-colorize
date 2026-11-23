@@ -2,7 +2,7 @@
   "name": "markdown-colorize",
   "private": true,
   "type": "module",
-  "description": "Build tooling only. The plugin itself ships editor/vendor/render.js and has no run-time dependencies.",
+  "description": "Build tooling only. The plugin ships the bundles this builds (editor/vendor/*.js, worker.mjs) and has no run-time dependencies.",
   "scripts": {
     "build": "node tools/build.mjs",
     "test": "node tools/test.mjs"
