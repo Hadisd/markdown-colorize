@@ -601,7 +601,6 @@ export async function mountViewer(options: {
     box.classList.toggle('todo', !done)
     box.setAttribute('aria-pressed', String(done))
     box.setAttribute('aria-label', done ? 'Done' : 'To do')
-    box.textContent = done ? '☑' : '☐'
   })
 
   // ---- undo and redo for the whole page (a block's own editor keeps history only while it is open)

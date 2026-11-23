@@ -129,11 +129,17 @@ li { margin: .25em 0; }
 li::marker { color: var(--lav); }
 ul ul li::marker { color: var(--cyan); }
 ul ul ul li::marker { color: var(--green); }
-.task { font-size: 1.05em; } .task.done { color: var(--green); } .task.todo { color: var(--dim); }
-button.task { appearance: none; background: none; border: 0; padding: 0; margin: 0; font-family: inherit;
-  line-height: inherit; vertical-align: baseline; cursor: pointer; border-radius: 3px; }
+.task.todo { color: var(--dim); } .task.done { color: var(--green); }
+/* A task's box, drawn (not a ☐ character, whose size depends on the font) and set where the bullet was. */
+li:has(> button.task), li:has(> p:first-child > button.task) { list-style: none; }
+button.task { appearance: none; position: relative; display: inline-block; box-sizing: border-box; width: 1.15em;
+  height: 1.15em; margin: 0 .5em 0 -1.45em; padding: 0; vertical-align: -.22em; font: inherit;
+  background: none; border: 2px solid currentColor; border-radius: 4px; cursor: pointer; }
+button.task.done { background: currentColor; }
+button.task.done::after { content: ''; position: absolute; left: 50%; top: 44%; width: .28em; height: .56em;
+  border: solid var(--bg); border-width: 0 .14em .14em 0; transform: translate(-50%, -50%) rotate(45deg); }
 button.task:hover { filter: brightness(1.25); }
-button.task:focus-visible { outline: 2px solid var(--lav); outline-offset: 1px; }
+button.task:focus-visible { outline: 2px solid var(--lav); outline-offset: 2px; }
 #doc:not(.editable) button.task { cursor: default; pointer-events: none; }
 blockquote { margin: 1em 0; padding: .1em 1em; border-left: 3px solid var(--lav); color: var(--dim);
   background: color-mix(in srgb, var(--lav) 7%, transparent); border-radius: 0 6px 6px 0; }

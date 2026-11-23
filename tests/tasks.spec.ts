@@ -33,8 +33,8 @@ test('toggles one character and refuses anything that is not a box', () => {
 
 test('render: a box is a button that says whether it is done', () => {
   const html = renderBlocks('- [ ] open\n- [x] done\n').blocks[0].html
-  assert.match(html, /<button type="button" class="task todo" aria-pressed="false" aria-label="To do">☐<\/button>\s+open/)
-  assert.match(html, /<button type="button" class="task done" aria-pressed="true" aria-label="Done">☑<\/button>\s+done/)
+  assert.match(html, /<button type="button" class="task todo" aria-pressed="false" aria-label="To do"><\/button>\s+open/)
+  assert.match(html, /<button type="button" class="task done" aria-pressed="true" aria-label="Done"><\/button>\s+done/)
 })
 
 test('every block draws exactly the boxes the Markdown has, in the same state', () => {
