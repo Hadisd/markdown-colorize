@@ -26,8 +26,10 @@ export function findRanges(root: HTMLElement, query: string): Range[] {
     const nodes: Text[] = []
     const starts: number[] = []
     let text = ''
+    // .katex-mathml is KaTeX's hidden copy of each formula, for screen readers: not text you can see.
     const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT, {
-      acceptNode: (n) => (n.parentElement?.closest('.copy, script, style') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT)
+      acceptNode: (n) =>
+        n.parentElement?.closest('.copy, script, style, .katex-mathml') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT
     })
     for (let n = walker.nextNode(); n; n = walker.nextNode()) {
       nodes.push(n as Text)

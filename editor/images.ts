@@ -4,7 +4,7 @@
 //
 // render.ts draws each image as a placeholder with its address in data-img; showImages swaps the
 // placeholder for the picture once it arrives, and puts it back if the picture goes away.
-import { fingerprintText } from './fingerprint'
+import { fingerprintText, textSize } from './fingerprint'
 
 type Answer =
   | { status: 'missing' }
@@ -70,7 +70,7 @@ export function createImageLoader(deps: {
       const t = text()
       let found: Where = { files: [], root: null }
       try {
-        const r = (await request('colorize.locate', { ...fingerprintText(t), bytes: new TextEncoder().encode(t).length })) as Partial<Where> | null
+        const r = (await request('colorize.locate', { ...fingerprintText(t), ...textSize(t) })) as Partial<Where> | null
         found = { files: Array.isArray(r?.files) ? r.files.filter((f) => typeof f === 'string') : [], root: typeof r?.root === 'string' ? r.root : null }
       } catch (error) {
         console.warn('[Markdown Colorize] could not find the open file for its images', error)

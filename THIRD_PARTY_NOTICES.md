@@ -1,6 +1,6 @@
 # Third-party notices
 
-`editor/vendor/render.js`, `editor/vendor/katex-css.js` and `editor/vendor/mermaid.js` and `editor/vendor/live.js` bundle these packages, built from `src/render.ts` by `tools/build.mjs`.
+`tools/build.mjs` bundles these packages into `editor/vendor/render.js` (from `src/render.ts`), `editor/vendor/katex-css.js` (KaTeX's stylesheet and fonts), `editor/vendor/mermaid.js` (from `src/mermaid.ts`) and `editor/vendor/live.js` (from `src/live.ts`).
 
 - **marked** 15.0.12, MIT License, Copyright (c) 2018+ MarkedJS contributors, Copyright (c) 2011-2018 Christopher Jeffrey. https://github.com/markedjs/marked
 - **highlight.js** 11.12.0, BSD 3-Clause License, Copyright (c) 2006 Ivan Sagalaev and contributors. https://github.com/highlightjs/highlight.js

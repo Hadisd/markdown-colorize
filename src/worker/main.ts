@@ -1,7 +1,7 @@
 // The plugin's worker, which Orca runs in Node.js. The editor frame has no file system and no
 // network, so it asks the worker for images:
 //
-//   colorize.locate { hash, length, bytes }
+//   colorize.locate { hash, length, bytes, lines }
 //     -> { files, root }: the files the open document may be (see locate.ts) and its workspace.
 //   colorize.image { src, files, root, offset, etag }
 //     -> { status: 'missing' } | { status: 'unchanged', etag }
@@ -73,13 +73,19 @@ export function createImageService(deps: {
   }
 
   async function locate(input: unknown): Promise<{ files: string[]; root: string | null }> {
-    const { hash, length, bytes } = record(input)
+    const { hash, length, bytes, lines } = record(input)
     const { roots, focused } = await workspaceRoots()
     if (typeof hash !== 'string' || !Number.isInteger(length) || !Number.isInteger(bytes)) {
       return { files: [], root: focused }
     }
     const order = [...(focused ? [focused] : []), ...roots.filter((r) => r !== focused).slice(0, MAX_OTHER_WORKSPACES)]
-    const found = await locateDocument({ roots: order, fingerprint: { hash, length: length as number }, bytes: bytes as number, listFiles })
+    const found = await locateDocument({
+      roots: order,
+      fingerprint: { hash, length: length as number },
+      bytes: bytes as number,
+      lines: Number.isInteger(lines) && (lines as number) >= 0 ? (lines as number) : 0,
+      listFiles
+    })
     return found ?? { files: [], root: focused }
   }
 

@@ -1,6 +1,6 @@
 // Turns Markdown (or MDX) text into colored HTML. Bundled by tools/build.mjs into
 // editor/vendor/render.js, because a plugin has no network and no bundler at run time.
-import { Marked, type Tokens, type TokenizerAndRendererExtension } from 'marked'
+import { Marked, type Token, type Tokens, type TokenizerAndRendererExtension } from 'marked'
 import katex from 'katex'
 import hljs from 'highlight.js/lib/core'
 import bash from 'highlight.js/lib/languages/bash'
@@ -51,10 +51,35 @@ const ALIAS: Record<string, string> = {
 }
 
 export type TocEntry = { depth: number; text: string; id: string }
-export type RenderOptions = { mdx?: boolean }
+export type RenderOptions = {
+  mdx?: boolean
+  /** The file's link reference definitions, for a piece of it drawn on its own (one edited block). */
+  definitions?: string
+}
+
+/** In front of every id the Markdown gives an element (headings, footnotes, HTML anchors), as on
+ *  GitHub, so a heading such as "Outline" cannot take the id of a part of the editor. Links keep
+ *  saying #outline; the editor adds the prefix when it follows one. */
+export const ANCHOR_PREFIX = 'user-content-'
 
 const escapeHtml = (s: string): string =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+
+const ENTITIES: Record<string, string> = {
+  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: '\u00a0', copy: '©', reg: '®', trade: '™',
+  hellip: '…', mdash: '—', ndash: '–', middot: '·', bull: '•', laquo: '«', raquo: '»',
+  lsquo: '‘', rsquo: '’', ldquo: '“', rdquo: '”'
+}
+
+/** HTML text as characters: &amp;, &#39; and &#x27; become &, ' and '. Unknown names stay as written. */
+const decodeEntities = (s: string): string =>
+  s.replace(/&(#\d{1,7}|#x[0-9a-f]{1,6}|[a-z][a-z0-9]{1,31});/gi, (all, ref: string) => {
+    if (ref[0] !== '#') {
+      return ENTITIES[ref.toLowerCase()] ?? all
+    }
+    const code = /^#x/i.test(ref) ? parseInt(ref.slice(2), 16) : parseInt(ref.slice(1), 10)
+    return code > 0 && code <= 0x10ffff && (code < 0xd800 || code > 0xdfff) ? String.fromCodePoint(code) : '\ufffd'
+  })
 
 const resolveLang = (lang: string | undefined): string | null => {
   const first = (lang ?? '').trim().split(/[\s{]/)[0].toLowerCase()
@@ -83,11 +108,18 @@ const SAFE_TAGS = new Set([
   'table', 'tbody', 'td', 'tfoot', 'th', 'thead', 'tr', 'u', 'ul'
 ])
 const VOID_TAGS = new Set(['br', 'hr', 'img'])
-const SAFE_ATTRS = new Set(['href', 'title', 'alt', 'src', 'align', 'width', 'height', 'open', 'colspan', 'rowspan'])
+const SAFE_ATTRS = new Set(['href', 'title', 'alt', 'src', 'align', 'width', 'height', 'open', 'colspan', 'rowspan', 'id', 'name'])
 
+/** A link the page may hold: web and mail addresses, and addresses without a scheme (a path, a
+ *  #section, a ?query). Other schemes (javascript:, data:, file:...) are refused, and so are control
+ *  characters, which browsers drop from an address and so could hide a scheme. */
 const safeUrl = (url: string): string | null => {
   const u = url.trim()
-  return /^(https?:|mailto:|#|\/|\.{1,2}\/)/i.test(u) || /^[\w.-]+(\/[\w.@%+-]*)*$/.test(u) ? u : null
+  if (/[\u0000-\u001f\u007f]/.test(u)) {
+    return null
+  }
+  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(u)
+  return scheme === null || /^(?:https?|mailto)$/i.test(scheme[1]) ? u : null
 }
 
 // ---- images and badges ----
@@ -209,15 +241,24 @@ const cleanTag = (raw: string): string => {
   const attrs: Record<string, string> = {}
   for (const a of rest.matchAll(/([a-zA-Z][\w:-]*)(?:\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g)) {
     const key = a[1].toLowerCase()
-    if (SAFE_ATTRS.has(key)) {
-      attrs[key] = a[3] ?? a[4] ?? a[5] ?? ''
+    if (SAFE_ATTRS.has(key) && !(key in attrs)) {
+      // Values are HTML: &amp; is "&". Decoded here, checked, and escaped once when written.
+      attrs[key] = decodeEntities(a[3] ?? a[4] ?? a[5] ?? '')
     }
   }
   if (name === 'img') {
     return imageHtml(attrs.alt ?? '', attrs.src ?? '', attrs)
   }
   let out = `<${name}`
+  // <a name="install"> or id="...": somewhere a #link can jump to, named like the page's other anchors.
+  const anchor = (attrs.id ?? (name === 'a' ? attrs.name : undefined) ?? '').trim()
+  if (anchor) {
+    out += ` id="${ANCHOR_PREFIX}${escapeHtml(anchor)}"`
+  }
   for (const [key, value] of Object.entries(attrs)) {
+    if (key === 'id' || key === 'name') {
+      continue
+    }
     if (key === 'href' || key === 'src') {
       const url = safeUrl(value)
       if (url === null) {
@@ -266,7 +307,7 @@ const CALLOUT_RE = new RegExp(
 
 // ---- math: $inline$, $$display$$ and ```math blocks, drawn by KaTeX ----
 
-const renderMath = (tex: string, display: boolean): string => {
+const renderMath = (tex: string, display: boolean, inParagraph = false): string => {
   try {
     const out = katex.renderToString(tex, {
       displayMode: display,
@@ -278,7 +319,11 @@ const renderMath = (tex: string, display: boolean): string => {
       maxExpand: 300,
       output: 'htmlAndMathml'
     })
-    return display ? `<div class="math-block">${out}</div>\n` : `<span class="math-inline">${out}</span>`
+    if (!display) {
+      return `<span class="math-inline">${out}</span>`
+    }
+    // $$…$$ inside a sentence: a <div> there would end the paragraph, so the same box as a <span>.
+    return inParagraph ? `<span class="math-block">${out}</span>` : `<div class="math-block">${out}</div>\n`
   } catch {
     return `<code class="ic">${escapeHtml(tex)}</code>`
   }
@@ -303,15 +348,28 @@ const mathInline: TokenizerAndRendererExtension = {
     }
     return undefined
   },
-  renderer: (token) => renderMath((token as MathToken).text, (token as MathToken).display)
+  renderer: (token) => renderMath((token as MathToken).text, (token as MathToken).display, true)
 }
+
+// $$, the formula and $$, with nothing after the closing $$ on its line. The formula holds no $$, so
+// "$$a$$ and text" cannot run on to the next $$ further down.
+const MATH_BLOCK = /^\$\$[ \t]*\n?((?:(?!\$\$)[\s\S])+?)\n?\$\$[ \t]*(?:\n|$)/
 
 const mathBlock: TokenizerAndRendererExtension = {
   name: 'mathBlock',
   level: 'block',
-  start: (src) => src.indexOf('$$'),
+  // Only where a whole block starts a line: stopping at any $$ would cut a sentence in two, and
+  // "$$x$$" inside a sentence is mathInline's.
+  start(src) {
+    for (let i = src.indexOf('\n$$'); i >= 0; i = src.indexOf('\n$$', i + 1)) {
+      if (MATH_BLOCK.test(src.slice(i + 1))) {
+        return i + 1
+      }
+    }
+    return undefined
+  },
   tokenizer(src): MathToken | undefined {
-    const m = /^\$\$[ \t]*\n?([\s\S]+?)\n?\$\$[ \t]*(?:\n|$)/.exec(src)
+    const m = MATH_BLOCK.exec(src)
     return m ? { type: 'mathBlock', raw: m[0], text: m[1].trim(), display: true } : undefined
   },
   renderer: (token) => renderMath((token as MathToken).text, true)
@@ -338,7 +396,16 @@ const markInline: TokenizerAndRendererExtension = {
 const emojiInline: TokenizerAndRendererExtension = {
   name: 'emojiInline',
   level: 'inline',
-  start: (src) => src.indexOf(':'),
+  // Only at a known shortcode: stopping at every ":" would cut "https://…" in two before marked
+  // could make it a link.
+  start(src) {
+    for (const m of src.matchAll(/:(?=([a-z0-9_+-]+):)/g)) {
+      if (Object.hasOwn(EMOJI, m[1])) {
+        return m.index
+      }
+    }
+    return undefined
+  },
   tokenizer(src): InlineToken | undefined {
     const m = /^:([a-z0-9_+-]+):/.exec(src)
     return m && Object.hasOwn(EMOJI, m[1]) ? { type: 'emojiInline', raw: m[0], text: EMOJI[m[1]] } : undefined
@@ -392,7 +459,7 @@ const footnoteExtensions = (notes: Notes): TokenizerAndRendererExtension[] => [
       const first = !notes.seenRef.has(label)
       notes.seenRef.add(label)
       return (
-        `<sup class="fn-ref"${first ? ` id="fnref-${id}"` : ''}>` +
+        `<sup class="fn-ref"${first ? ` id="${ANCHOR_PREFIX}fnref-${id}"` : ''}>` +
         `<a href="#fn-${id}" data-href="#fn-${id}" title="Go to the note">${notes.number.get(label)}</a></sup>`
       )
     }
@@ -414,7 +481,7 @@ const footnoteExtensions = (notes: Notes): TokenizerAndRendererExtension[] => [
       const label = (token as NoteDef).label
       const id = noteId(label)
       return (
-        `<div class="fn-def" id="fn-${id}"><span class="fn-num">${notes.number.get(label)}</span>` +
+        `<div class="fn-def" id="${ANCHOR_PREFIX}fn-${id}"><span class="fn-num">${notes.number.get(label)}</span>` +
         `<div class="fn-body">${this.parser.parse(token.tokens ?? [])}</div>` +
         `<a class="fn-back" href="#fnref-${id}" data-href="#fnref-${id}" title="Back to the text">↩</a></div>\n`
       )
@@ -548,25 +615,48 @@ const frontMatterHtml = (yamlText: string): string => {
 
 // ---- main ----
 
+/** A heading's text as the reader sees it: no HTML tags or pictures, and &amp; as "&". */
+const plainText = (tokens: Token[]): string =>
+  tokens
+    .map((t): string => {
+      if (t.type === 'html' || t.type === 'image' || t.type === 'br') {
+        return ''
+      }
+      if ('tokens' in t && Array.isArray(t.tokens) && t.tokens.length > 0) {
+        return plainText(t.tokens)
+      }
+      if (!('text' in t)) {
+        return ''
+      }
+      return t.type === 'text' ? decodeEntities(String(t.text)) : String(t.text)
+    })
+    .join('')
+
 const makeMarked = (toc: TocEntry[], seen: Map<string, number>, mdx: boolean, notes: Notes): Marked => {
   const md = new Marked({ gfm: true, breaks: false })
+  // GitHub's anchors (as github-slugger makes them): lower case, only letters, marks, digits, "_",
+  // "-" and spaces kept, and each space a "-", so "Foo & Bar" is #foo--bar, "🚀 Launch" is #-launch
+  // and "x²" is #x. A repeat takes the first free -1, -2...: "a", "a", "a-1" are #a, #a-1, #a-1-1.
   const slug = (text: string): string => {
-    const base =
-      text.toLowerCase().replace(/<[^>]*>/g, '').replace(/[^\p{L}\p{N}\s-]/gu, '').trim().replace(/\s+/g, '-') ||
-      'section'
-    const n = seen.get(base) ?? 0
-    seen.set(base, n + 1)
-    return n === 0 ? base : `${base}-${n}`
+    const base = text.toLowerCase().replace(/[^\p{Alphabetic}\p{M}\p{Nd}\p{Pc} -]/gu, '').replace(/ /g, '-') || 'section'
+    let id = base
+    while (seen.has(id)) {
+      const n = (seen.get(base) ?? 0) + 1
+      seen.set(base, n)
+      id = `${base}-${n}`
+    }
+    seen.set(id, 0)
+    return id
   }
   md.use({ extensions: [mathBlock, mathInline, markInline, emojiInline, ...footnoteExtensions(notes)] })
   md.use({
     renderer: {
       heading({ tokens, depth }: Tokens.Heading): string {
         const inner = this.parser.parseInline(tokens)
-        const plain = tokens.map((t) => ('text' in t ? String(t.text) : '')).join('')
+        const plain = plainText(tokens)
         const id = slug(plain)
-        toc.push({ depth, text: plain, id })
-        return `<h${depth} id="${id}"><a class="anchor" href="#${id}" data-href="#${id}">#</a>${inner}</h${depth}>\n`
+        toc.push({ depth, text: plain.replace(/\s+/g, ' ').trim(), id })
+        return `<h${depth} id="${ANCHOR_PREFIX}${id}"><a class="anchor" href="#${id}" data-href="#${id}">#</a>${inner}</h${depth}>\n`
       },
       code({ text, lang }: Tokens.Code): string {
         const info = (lang ?? '').trim()
@@ -617,8 +707,11 @@ const makeMarked = (toc: TocEntry[], seen: Map<string, number>, mdx: boolean, no
       image({ href, text }: Tokens.Image): string {
         return imageHtml(text, href)
       },
-      html({ text }: Tokens.HTML | Tokens.Tag): string {
+      html({ text, block }: Tokens.HTML | Tokens.Tag): string {
         if (mdx && JSX_START.test(text)) {
+          if (!block) {
+            return `<code class="ic">${escapeHtml(text)}</code>` // a component inside a sentence stays in it
+          }
           return `<div class="codeblock mdx-jsx"><div class="code-head"><span class="code-lang">jsx</span></div><pre><code class="hljs">${highlight(text.replace(/\n+$/, ''), 'xml')}</code></pre></div>\n`
         }
         return cleanHtml(text)
@@ -654,7 +747,13 @@ export const highlightCode = (code: string, lang: string): string => highlight(c
 /** One top-level piece of the page. `from` and `to` are offsets into the normalized text (line
  *  endings as \n), where text.slice(from, to) is exactly the Markdown that produced `html`. */
 export type Block = { from: number; to: number; html: string }
-export type BlockRender = { blocks: Block[]; toc: TocEntry[]; words: number }
+export type BlockRender = {
+  blocks: Block[]
+  toc: TocEntry[]
+  words: number
+  /** The text's own link reference definitions ([id]: url), for `RenderOptions.definitions`. */
+  definitions: string
+}
 
 type Segment = { text: string; offset: number; hoist?: 'module' | 'jsx' }
 
@@ -703,7 +802,7 @@ const splitMdx = (text: string): Segment[] => {
 
 // ---- HTML that wraps blocks: <p align="center"> or <details> with blank lines inside ----
 
-type Piece = { from: number; to: number; source: string; html?: boolean }
+type Piece = { from: number; to: number; source: string; html?: boolean; defs?: boolean }
 
 const CONTAINER_TAGS = new Set([...SAFE_TAGS].filter((t) => !VOID_TAGS.has(t)))
 
@@ -747,8 +846,8 @@ const joinWrappingHtml = (pieces: Piece[], text: string): Piece[] => {
 
 /**
  * Renders the page as blocks, so the editor can swap one block for an editable copy of its own
- * Markdown. Each block is parsed on its own; link definitions are added to every block so
- * reference links still work.
+ * Markdown. Each block is parsed on its own; the link reference definitions are put in front of
+ * every block that may use them, so reference links still work.
  */
 export function renderBlocks(source: string, options: RenderOptions = {}): BlockRender {
   const mdx = options.mdx === true
@@ -770,27 +869,50 @@ export function renderBlocks(source: string, options: RenderOptions = {}): Block
   const body = text.slice(base)
   const segments: Segment[] = mdx ? splitMdx(body) : [{ text: body, offset: 0 }]
   const defs: string[] = []
-  const pending: { from: number; to: number; source: string }[] = []
+  const pending: Piece[] = []
   for (const seg of segments) {
     if (seg.hoist) {
       const raw = seg.text.replace(/\s+$/, '')
       const fence = seg.hoist === 'module' ? 'js mdx-module' : 'jsx mdx-jsx'
-      pending.push({ from: base + seg.offset, to: base + seg.offset + raw.length, source: '```' + fence + '\n' + raw + '\n```\n' })
+      // A fence longer than any run of backticks inside, so a ``` in the component cannot close it.
+      const ticks = '`'.repeat(Math.max(3, ...Array.from(raw.matchAll(/`+/g), (m) => m[0].length + 1)))
+      pending.push({ from: base + seg.offset, to: base + seg.offset + raw.length, source: `${ticks}${fence}\n${raw}\n${ticks}\n` })
       continue
     }
-    let pos = seg.offset
+    let at = 0 // where in seg.text the next token may start
+    let fits = true
     const found: Piece[] = []
-    for (const token of md.lexer(seg.text)) {
-      const raw = token.raw
-      if (token.type === 'def') {
-        defs.push(raw.replace(/\s+$/, ''))
-      } else if (token.type !== 'space') {
-        const trimmed = raw.replace(/\s+$/, '')
-        found.push({ from: base + pos, to: base + pos + trimmed.length, source: trimmed, html: token.type === 'html' })
+    // marked keeps no token for a link reference definition (only the link, for the parser), so the
+    // text up to `end` may be definitions and blank lines; anything else and offsets are off. The
+    // definitions draw nothing, so they get a block that shows them as written, to be clicked.
+    const gap = (end: number): boolean => {
+      const raw = seg.text.slice(at, end)
+      const written = raw.trim()
+      if (written === '') {
+        return true
       }
-      pos += raw.length
+      if (!md.lexer(raw).every((t) => t.type === 'space')) {
+        return false
+      }
+      const from = base + seg.offset + at + raw.length - raw.trimStart().length
+      found.push({ from, to: from + written.length, source: written, defs: true })
+      defs.push(written)
+      return true
     }
-    if (pos - seg.offset === seg.text.length) {
+    for (const token of md.lexer(seg.text)) {
+      const start = seg.text.startsWith(token.raw, at) ? at : seg.text.indexOf(token.raw, at)
+      if (start < 0 || !gap(start)) {
+        fits = false
+        break
+      }
+      if (token.type !== 'space') {
+        const trimmed = token.raw.replace(/\s+$/, '')
+        const from = base + seg.offset + start
+        found.push({ from, to: from + trimmed.length, source: trimmed, html: token.type === 'html' })
+      }
+      at = start + token.raw.length
+    }
+    if (fits && gap(seg.text.length)) {
       pending.push(...joinWrappingHtml(found, text))
     } else {
       // The parser's pieces do not add up to the text, so offsets cannot be trusted: one block.
@@ -800,11 +922,19 @@ export function renderBlocks(source: string, options: RenderOptions = {}): Block
       }
     }
   }
-  const definitions = defs.length ? `\n\n${defs.join('\n')}\n` : ''
+  const own = defs.join('\n')
+  const all = [options.definitions ?? '', own].filter((d) => d.trim() !== '').join('\n')
+  // In front, a blank line apart, where a code fence left open at the end cannot swallow them; and
+  // only where a reference link can be, which needs a "[".
   for (const p of pending) {
-    blocks.push({ from: p.from, to: p.to, html: md.parse(p.source + definitions, { async: false }) as string })
+    if (p.defs) {
+      blocks.push({ from: p.from, to: p.to, html: `<div class="link-defs">${escapeHtml(p.source)}</div>\n` })
+      continue
+    }
+    const markdown = all && p.source.includes('[') ? `${all}\n\n${p.source}` : p.source
+    blocks.push({ from: p.from, to: p.to, html: md.parse(markdown, { async: false }) as string })
   }
   blocks.sort((a, b) => a.from - b.from)
   const words = (body.match(/[\p{L}\p{N}'’-]+/gu) ?? []).length
-  return { blocks, toc, words }
+  return { blocks, toc, words, definitions: own }
 }

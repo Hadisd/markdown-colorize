@@ -1,7 +1,8 @@
 // Image files on this machine. A source is a path relative to the document, a path from the
 // workspace root ("/docs/a.png", as documentation sites write it), an absolute path or a file: URL.
-// Only image file types are read, only inside a local workspace, and never from a .git folder.
-import { open, stat } from 'node:fs/promises'
+// Only image file types are read, only inside a local workspace, and never named through a .git
+// folder; a symbolic link must lead to an image inside a workspace too (git-annex's lead into .git).
+import { open, realpath, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { isInside, type ListFiles } from './files'
@@ -86,16 +87,22 @@ export async function findLocalImage(options: {
   listFiles: ListFiles
 }): Promise<{ path: string; size: number; mtimeMs: number } | null> {
   const { src, files, root, roots, listFiles } = options
+  const allowed = (file: string, within: string[]): boolean => imageMime(file) !== null && within.some((r) => isInside(file, r))
+  let realRoots: string[] | null = null
   for (const candidate of await candidates(src, files, root, listFiles)) {
-    if (!imageMime(candidate) || candidate.split(/[\\/]/).includes('.git')) {
-      continue
-    }
-    if (!roots.some((r) => isInside(candidate, r))) {
+    if (!allowed(candidate, roots) || candidate.split(/[\\/]/).some((part) => part.toLowerCase() === '.git')) {
       continue
     }
     const info = await stat(candidate).catch(() => null)
-    if (info?.isFile()) {
-      return { path: candidate, size: info.size, mtimeMs: info.mtimeMs }
+    if (!info?.isFile()) {
+      continue
+    }
+    // The name is checked above; a link (logo.png -> ~/.ssh/id_rsa) can point anywhere, so where it
+    // really leads is checked too, against the workspaces as they really are.
+    const real = await realpath(candidate).catch(() => null)
+    realRoots ??= await Promise.all(roots.map((r) => realpath(r).catch(() => r)))
+    if (real !== null && allowed(real, realRoots)) {
+      return { path: real, size: info.size, mtimeMs: info.mtimeMs }
     }
   }
   return null

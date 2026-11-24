@@ -1,4 +1,4 @@
-import { highlightCode, renderBlocks, type Block } from './vendor/render.js'
+import { ANCHOR_PREFIX, highlightCode, renderBlocks, type Block } from './vendor/render.js'
 import KATEX_CSS from './vendor/katex-css.js'
 import type { LiveEditor, LiveOptions } from './vendor/live.js'
 import { renderDiagrams } from './diagrams'
@@ -117,7 +117,8 @@ export async function mountViewer(options: {
       const line = box.top + 24
       // At the very end the last headings can never reach the top, so any one in view counts.
       const atEnd = scroll.scrollTop + scroll.clientHeight >= scroll.scrollHeight - 2
-      const headings = Array.from(docEl.querySelectorAll<HTMLElement>('h1[id], h2[id], h3[id], h4[id], h5[id], h6[id]'))
+      // The headings the outline lists, which have a # anchor; an <h2 id="..."> written in HTML has none.
+      const headings = Array.from(docEl.querySelectorAll<HTMLElement>(':is(h1, h2, h3, h4, h5, h6) > a.anchor'), (a) => a.parentElement as HTMLElement)
       let id = headings[0]?.id ?? '' // above the first heading, the first one is marked
       for (const h of headings) {
         const top = h.getBoundingClientRect().top
@@ -127,7 +128,7 @@ export async function mountViewer(options: {
         id = h.id
       }
       outline.querySelectorAll<HTMLElement>('a').forEach((a) => {
-        const on = a.getAttribute('data-href') === `#${id}`
+        const on = `${ANCHOR_PREFIX}${a.getAttribute('data-href')?.slice(1)}` === id
         if (on && !a.classList.contains('current')) {
           a.scrollIntoView({ block: 'nearest' }) // keep the marked heading in view in a long outline
         }
@@ -225,6 +226,8 @@ export async function mountViewer(options: {
     info.textContent = words === 0 ? '' : `${words.toLocaleString()} words · ${Math.max(1, Math.round(words / 220))} min read`
   }
   const EMPTY = '<div class="blk blk-empty" tabindex="0" data-from="0" data-to="0"><p class="empty">This file is empty. Click to start writing.</p></div>'
+  // The file's link reference definitions ([id]: url), for a block drawn again on its own.
+  let definitions = ''
 
   const draw = (text: string): void => {
     const keep = scroll.scrollTop
@@ -232,6 +235,7 @@ export async function mountViewer(options: {
       docEl.innerHTML = EMPTY
       outline.replaceChildren()
       showInfo(0)
+      definitions = ''
       return
     }
     let rendered: ReturnType<typeof renderBlocks>
@@ -245,6 +249,7 @@ export async function mountViewer(options: {
       return
     }
     docEl.innerHTML = rendered.blocks.map((b) => blockHtml(b)).join('') // raw HTML in it is already cleaned
+    definitions = rendered.definitions
     showOutline(rendered.toc)
     showInfo(rendered.words)
     ensureTabStop()
@@ -278,7 +283,15 @@ export async function mountViewer(options: {
     event.preventDefault()
     const url = link.getAttribute('data-href') ?? ''
     if (url.startsWith('#')) {
-      document.getElementById(decodeURIComponent(url.slice(1)))?.scrollIntoView({ block: 'start' })
+      let id = url.slice(1)
+      try {
+        id = decodeURIComponent(id)
+      } catch {
+        // a bare % (#100%): the id as written
+      }
+      // As on GitHub, #Install also finds #install.
+      const target = document.getElementById(ANCHOR_PREFIX + id) ?? document.getElementById(ANCHOR_PREFIX + id.toLowerCase())
+      target?.scrollIntoView({ block: 'start' })
     } else if (/^(https?:|mailto:)/i.test(url)) {
       void orca.shell?.openExternal(url)
     }
@@ -312,13 +325,17 @@ export async function mountViewer(options: {
   syncHistoryButtons()
   let redrawTimer: ReturnType<typeof setTimeout> | undefined
 
-  const refreshMeta = (): void => {
+  /** The outline, word count and link definitions, from the whole file; true when the definitions changed. */
+  const refreshMeta = (): boolean => {
     try {
-      const { toc, words } = renderBlocks(current, { mdx: options.mdx })
-      showOutline(toc)
-      showInfo(words)
+      const page = renderBlocks(current, { mdx: options.mdx })
+      showOutline(page.toc)
+      showInfo(page.words)
+      const changed = page.definitions !== definitions
+      definitions = page.definitions
+      return changed
     } catch {
-      // nothing to update
+      return false // nothing to update
     }
   }
 
@@ -379,18 +396,20 @@ export async function mountViewer(options: {
       }
       next = next.nextElementSibling as HTMLElement | null
     }
-    let hasHeading = false
+    // The whole file first: the outline, the word count, and the link definitions this block may use.
+    // A definition added, changed or removed is used by other blocks too, so the page is redrawn.
+    let wholePage = refreshMeta()
     if (text.trim() === '') {
       box.remove()
     } else {
       let pieces: Block[] = []
       try {
-        pieces = renderBlocks(text, { mdx: options.mdx }).blocks
+        pieces = renderBlocks(text, { mdx: options.mdx, definitions }).blocks
       } catch {
         pieces = []
       }
       // Heading ids and footnote numbers depend on the whole page, so such blocks trigger a redraw.
-      hasHeading = pieces.some((b) => /^<h[1-6]\b/.test(b.html) || /fn-ref|fn-def/.test(b.html)) || /\[\^[^\]\s]+\]/.test(text)
+      wholePage ||= pieces.some((b) => /^<h[1-6]\b/.test(b.html) || /fn-ref|fn-def/.test(b.html)) || /\[\^[^\]\s]+\]/.test(text)
       box.outerHTML = pieces.length
         ? pieces.map((b) => blockHtml(b, pre.length)).join('')
         : `<div class="blk" tabindex="-1" data-from="${pre.length}" data-to="${pre.length + text.length}"><p>${escapeText(text)}</p></div>`
@@ -398,7 +417,6 @@ export async function mountViewer(options: {
     if (!docEl.querySelector('.blk')) {
       docEl.innerHTML = EMPTY
     }
-    refreshMeta()
     void renderDiagrams(docEl)
     showImages(docEl, images)
     find.refresh()
@@ -406,9 +424,9 @@ export async function mountViewer(options: {
     if (focusResult) {
       docEl.querySelector<HTMLElement>(`.blk[data-from="${pre.length}"]`)?.focus() // Esc keeps you in the keyboard flow
     }
-    // Headings are numbered across the whole page, so redraw it once typing has stopped.
+    // Redraw the whole page once typing has stopped.
     clearTimeout(redrawTimer)
-    if (hasHeading) {
+    if (wholePage) {
       redrawTimer = setTimeout(() => {
         if (!editing && current === pre + text + post) {
           draw(current)
@@ -491,9 +509,33 @@ export async function mountViewer(options: {
     editor.focus()
   }
 
+  type Near = { blk: HTMLElement; caretX: number; place?: 'start' | 'end' }
+  /** A press beside or between blocks (their margins belong to the page, not to a block) is for the
+   *  nearest block: its start from above, its end from below, the line at that height from the side.
+   *  Below the last block there is none, and a press there starts a new block at the end of the file. */
+  const blockNear = (x: number, y: number): Near | null => {
+    const blocks = Array.from(docEl.querySelectorAll<HTMLElement>('.blk'))
+    const last = blocks[blocks.length - 1]
+    if (!last || y > last.getBoundingClientRect().bottom) {
+      return null
+    }
+    let near: Near | null = null
+    let distance = Infinity
+    for (const blk of blocks) {
+      const box = blk.getBoundingClientRect()
+      const d = y < box.top ? box.top - y : y > box.bottom ? y - box.bottom : 0
+      if (d < distance) {
+        distance = d
+        const place = y < box.top ? 'start' : y > box.bottom ? 'end' : undefined
+        near = { blk, caretX: Math.min(Math.max(x, box.left + 1), box.right - 1), place }
+      }
+    }
+    return near
+  }
+
   // Which block was pressed is decided on mouse down, before another block finishes editing and
   // the page shifts under the pointer.
-  let pressed: { blk: HTMLElement | null; interactive: boolean; x: number; y: number } | null = null
+  let pressed: { blk: HTMLElement | null; place?: 'start' | 'end'; caretX: number; interactive: boolean; x: number; y: number } | null = null
   scroll.addEventListener(
     'mousedown',
     (event) => {
@@ -502,8 +544,12 @@ export async function mountViewer(options: {
         pressed = null
         return
       }
+      const blk = target.closest<HTMLElement>('.blk')
+      const near = !blk && (target === scroll || target === docEl) ? blockNear(event.clientX, event.clientY) : null
       pressed = {
-        blk: target.closest<HTMLElement>('.blk'),
+        blk: blk ?? near?.blk ?? null,
+        place: near?.place,
+        caretX: near?.caretX ?? event.clientX,
         interactive: !!target.closest('a, button, [data-href], .copy, .anchor, summary, input, select, textarea, [contenteditable]'),
         x: event.clientX,
         y: event.clientY
@@ -525,7 +571,7 @@ export async function mountViewer(options: {
     }
     const target = event.target as HTMLElement
     if (!p.blk) {
-      // The empty space around the text: start a new block at the end of the file.
+      // The empty space below the text: start a new block at the end of the file.
       if (target === scroll || target === docEl) {
         startEdit(null, p.x, p.y)
       }
@@ -536,7 +582,7 @@ export async function mountViewer(options: {
       return // a table cell is edited in place
     }
     if (p.blk.isConnected) {
-      startEdit(p.blk, p.x, p.y)
+      startEdit(p.blk, p.caretX, p.y, p.place)
     }
   })
   docEl.addEventListener('contextmenu', (event) => {
@@ -559,7 +605,7 @@ export async function mountViewer(options: {
       history.record(before, after)
       syncHistoryButtons()
     },
-    render: (markdown) => renderBlocks(markdown, { mdx: options.mdx }).blocks.map((b) => b.html).join(''),
+    render: (markdown) => renderBlocks(markdown, { mdx: options.mdx, definitions }).blocks.map((b) => b.html).join(''),
     rendered: () => {
       refreshMeta()
       showImages(docEl, images)

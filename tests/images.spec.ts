@@ -2,12 +2,12 @@
 // the frame's loader (editor/images.ts) talking to that worker. Run with `npm test`.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { renderBlocks } from '../src/render.ts'
-import { fingerprintText } from '../editor/fingerprint.ts'
+import { fingerprintText, textSize } from '../editor/fingerprint.ts'
 import { createImageLoader } from '../editor/images.ts'
 import { createImageService, type ImageAnswer } from '../src/worker/main.ts'
 import { CHUNK_BYTES } from '../src/worker/local.ts'
@@ -119,6 +119,43 @@ test('worker: reads images inside the workspace only', async () => {
   assert.equal((await ask('../../outside/x.png')).status, 'missing') // outside every workspace
   assert.equal((await ask('img/a.png', { files: ['/etc/passwd.md'], root: '/' })).status, 'missing')
   assert.equal((await ask('img/missing.png')).status, 'missing')
+})
+
+test('worker: finds the file whatever line endings the editor was given', async () => {
+  const { root, text, service } = workspace() // the file on disk has \r\n
+  const where = { root, files: [join(root, 'docs', 'readme.md')] }
+  for (const given of [text, text.replace(/\r\n/g, '\n'), `\uFEFF${text}`]) {
+    assert.deepEqual(await service.locate({ ...fingerprintText(given), ...textSize(given) }), where)
+  }
+})
+
+test('worker: a symbolic link is followed only to an image inside a workspace', async () => {
+  const { root, service } = workspace()
+  const img = join(root, 'docs', 'img')
+  symlinkSync(join(root, '..', 'outside', 'x.png'), join(img, 'out.png'))
+  symlinkSync(join(root, 'docs', 'secret.txt'), join(img, 'secret.png'))
+  symlinkSync(join(img, 'a.png'), join(img, 'in.png'))
+  const ask = (src: string): Promise<ImageAnswer> =>
+    service.image({ src, files: [join(root, 'docs', 'readme.md')], root, offset: 0, etag: null })
+  assert.equal((await ask('img/out.png')).status, 'missing') // leads out of the workspace
+  assert.equal((await ask('img/secret.png')).status, 'missing') // leads to a file that is not an image
+  assert.equal((await ask('img/in.png')).status, 'data')
+  // git-annex keeps the picture in .git and links to it: fine, though .git is never named directly.
+  const object = join(root, '.git', 'annex', 'objects', 'Xx', 'Yy', 'SHA256E-s3--abc.png')
+  mkdirSync(object, { recursive: true })
+  writeFileSync(join(object, 'SHA256E-s3--abc.png'), 'png')
+  symlinkSync(join(object, 'SHA256E-s3--abc.png'), join(img, 'annexed.png'))
+  assert.equal((await ask('img/annexed.png')).status, 'data')
+  assert.equal((await ask('../.git/annex/objects/Xx/Yy/SHA256E-s3--abc.png/SHA256E-s3--abc.png')).status, 'missing')
+  // A workspace that is itself reached through a link still works.
+  const alias = join(root, '..', 'alias')
+  symlinkSync(root, alias)
+  const linked = createImageService({
+    host: { call: async (method: string) => (method === 'workspace.list' ? { workspaces: [{ path: alias, hostId: 'local' }] } : null) },
+    remoteAllowed: async () => false
+  })
+  const answer = await linked.image({ src: 'img/a.png', files: [join(alias, 'docs', 'readme.md')], root: alias, offset: 0 })
+  assert.equal(answer.status, 'data')
 })
 
 test('worker: web images follow the setting', async () => {

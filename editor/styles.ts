@@ -203,6 +203,9 @@ pre code { font-family: var(--md-code-font, ui-monospace, "SF Mono", Menlo, Cons
 .v-str { color: var(--fg); } .v-num { color: var(--orange); } .v-bool { color: var(--pink); }
 .v-date { color: var(--green); } .v-null { color: var(--dim); font-style: italic; }
 .chip span { color: inherit; }
+/* link reference definitions ([id]: url): drawn as written, quietly, so they can be found and edited */
+.link-defs { margin: 1em 0; padding-left: 12px; border-left: 3px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere;
+  font: .8em/1.6 var(--md-code-font, ui-monospace, monospace); color: var(--dim); }
 
 /* footnotes */
 sup.fn-ref { font-size: .75em; line-height: 0; margin-left: 1px; }
@@ -239,7 +242,7 @@ sup.fn-ref a::before { content: "["; } sup.fn-ref a::after { content: "]"; }
 .badge-m { background: var(--b, var(--lav)); color: var(--bg); }
 a:has(.badge) { text-decoration: none; }
 .katex { color: var(--cyan); font-size: 1.08em; }
-.math-block { margin: 1em 0; padding: .4em 0; overflow-x: auto; overflow-y: hidden; text-align: center; }
+.math-block { display: block; margin: 1em 0; padding: .4em 0; overflow-x: auto; overflow-y: hidden; text-align: center; }
 .math-block .katex-display { margin: 0; }
 .katex-error { color: var(--pink); }
 .diagram { padding: 14px; overflow-x: auto; text-align: center; }

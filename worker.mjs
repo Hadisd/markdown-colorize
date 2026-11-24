@@ -59,7 +59,7 @@ function isInside(file, root) {
 var isMarkdownPath = (file) => /\.(?:md|markdown|mdx)$/i.test(file);
 
 // src/worker/local.ts
-import { open, stat } from "node:fs/promises";
+import { open, realpath, stat } from "node:fs/promises";
 import path2 from "node:path";
 import { fileURLToPath } from "node:url";
 var CHUNK_BYTES = 3 * 128 * 1024;
@@ -120,16 +120,20 @@ async function candidates(src, files, root, listFiles) {
 }
 async function findLocalImage(options) {
   const { src, files, root, roots, listFiles } = options;
+  const allowed = (file, within) => imageMime(file) !== null && within.some((r) => isInside(file, r));
+  let realRoots = null;
   for (const candidate of await candidates(src, files, root, listFiles)) {
-    if (!imageMime(candidate) || candidate.split(/[\\/]/).includes(".git")) {
-      continue;
-    }
-    if (!roots.some((r) => isInside(candidate, r))) {
+    if (!allowed(candidate, roots) || candidate.split(/[\\/]/).some((part) => part.toLowerCase() === ".git")) {
       continue;
     }
     const info = await stat(candidate).catch(() => null);
-    if (info?.isFile()) {
-      return { path: candidate, size: info.size, mtimeMs: info.mtimeMs };
+    if (!info?.isFile()) {
+      continue;
+    }
+    const real = await realpath(candidate).catch(() => null);
+    realRoots ??= await Promise.all(roots.map((r) => realpath(r).catch(() => r)));
+    if (real !== null && allowed(real, realRoots)) {
+      return { path: real, size: info.size, mtimeMs: info.mtimeMs };
     }
   }
   return null;
@@ -171,13 +175,13 @@ function fingerprintText(text) {
 var BOM_BYTES = 3;
 var MAX_MATCHES = 8;
 async function locateDocument(options) {
-  const { roots, fingerprint, bytes, listFiles } = options;
+  const { roots, fingerprint, bytes, lines = 0, listFiles } = options;
   for (const root of roots) {
     const markdown = (await listFiles(root)).filter(isMarkdownPath);
     const sizes = await Promise.all(markdown.map((file) => stat2(file).then((s) => s.size, () => -1)));
     const files = [];
     for (const [i, file] of markdown.entries()) {
-      if (sizes[i] !== bytes && sizes[i] !== bytes + BOM_BYTES) {
+      if (sizes[i] < bytes || sizes[i] > bytes + lines + BOM_BYTES) {
         continue;
       }
       let text;
@@ -438,13 +442,19 @@ function createImageService(deps) {
     return { roots: rootsOf(list), focused: focused ? path3.resolve(focused.path) : null };
   };
   async function locate(input) {
-    const { hash, length, bytes } = record(input);
+    const { hash, length, bytes, lines } = record(input);
     const { roots, focused } = await workspaceRoots();
     if (typeof hash !== "string" || !Number.isInteger(length) || !Number.isInteger(bytes)) {
       return { files: [], root: focused };
     }
     const order = [...focused ? [focused] : [], ...roots.filter((r) => r !== focused).slice(0, MAX_OTHER_WORKSPACES)];
-    const found = await locateDocument({ roots: order, fingerprint: { hash, length }, bytes, listFiles });
+    const found = await locateDocument({
+      roots: order,
+      fingerprint: { hash, length },
+      bytes,
+      lines: Number.isInteger(lines) && lines >= 0 ? lines : 0,
+      listFiles
+    });
     return found ?? { files: [], root: focused };
   }
   async function image(input) {
