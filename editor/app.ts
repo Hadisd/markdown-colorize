@@ -163,7 +163,7 @@ export async function mountViewer(options: {
     const look = [prefs.mode, prefs.vivid, shown, prefs.textFont, prefs.fontSize].join('|')
     if (look !== lastLook) {
       lastLook = look
-      void renderDiagrams(docEl) // diagrams take their colors from the page, so they redraw with it
+      void renderDiagrams(docEl, true) // diagrams take their colors from the page, so they redraw with it
     }
     outline.hidden = !prefs.outline
     spy()
@@ -228,8 +228,11 @@ export async function mountViewer(options: {
   const EMPTY = '<div class="blk blk-empty" tabindex="0" data-from="0" data-to="0"><p class="empty">This file is empty. Click to start writing.</p></div>'
   // The file's link reference definitions ([id]: url), for a block drawn again on its own.
   let definitions = ''
+  // An edit changed something other blocks show (a heading id, a footnote number, a definition).
+  let pageStale = false
 
   const draw = (text: string): void => {
+    pageStale = false
     const keep = scroll.scrollTop
     if (text.trim() === '') {
       docEl.innerHTML = EMPTY
@@ -304,7 +307,7 @@ export async function mountViewer(options: {
   const canEdit = options.editor !== undefined && !doc.readOnly
   docEl.classList.toggle('editable', canEdit)
 
-  type Editing = { el: HTMLElement; editor: LiveEditor; pre: string; post: string; originalLength: number }
+  type Editing = { el: HTMLElement; editor: LiveEditor; pre: string; post: string; originalLength: number; originalHtml: string; stop: AbortController }
   let editing: Editing | null = null
   const history = new PageHistory()
   let sessionBefore = current
@@ -328,7 +331,7 @@ export async function mountViewer(options: {
   /** The outline, word count and link definitions, from the whole file; true when the definitions changed. */
   const refreshMeta = (): boolean => {
     try {
-      const page = renderBlocks(current, { mdx: options.mdx })
+      const page = renderBlocks(current, { mdx: options.mdx, metaOnly: true })
       showOutline(page.toc)
       showInfo(page.words)
       const changed = page.definitions !== definitions
@@ -380,9 +383,10 @@ export async function mountViewer(options: {
     if (!editing) {
       return
     }
-    const { el: box, editor, pre, post, originalLength } = editing
+    const { el: box, editor, pre, post, originalLength, originalHtml, stop } = editing
     const text = editor.getText()
     editing = null
+    stop.abort() // the block's focusout listener
     editor.destroy()
     history.record(sessionBefore, current) // one undo step per editing session
     syncHistoryButtons()
@@ -396,10 +400,15 @@ export async function mountViewer(options: {
       }
       next = next.nextElementSibling as HTMLElement | null
     }
+    // Only looked at, not changed (a click through, or arrowing past): nothing else on the page moved.
+    const changed = sessionBefore !== current
     // The whole file first: the outline, the word count, and the link definitions this block may use.
     // A definition added, changed or removed is used by other blocks too, so the page is redrawn.
-    let wholePage = refreshMeta()
-    if (text.trim() === '') {
+    let wholePage = changed && refreshMeta()
+    if (!changed && originalHtml !== '') {
+      box.classList.remove('editing')
+      box.innerHTML = originalHtml // as the page drew it, heading ids and all
+    } else if (text.trim() === '') {
       box.remove()
     } else {
       let pieces: Block[] = []
@@ -409,7 +418,7 @@ export async function mountViewer(options: {
         pieces = []
       }
       // Heading ids and footnote numbers depend on the whole page, so such blocks trigger a redraw.
-      wholePage ||= pieces.some((b) => /^<h[1-6]\b/.test(b.html) || /fn-ref|fn-def/.test(b.html)) || /\[\^[^\]\s]+\]/.test(text)
+      wholePage ||= changed && (pieces.some((b) => /^<h[1-6]\b/.test(b.html) || /fn-ref|fn-def/.test(b.html)) || /\[\^[^\]\s]+\]/.test(text))
       box.outerHTML = pieces.length
         ? pieces.map((b) => blockHtml(b, pre.length)).join('')
         : `<div class="blk" tabindex="-1" data-from="${pre.length}" data-to="${pre.length + text.length}"><p>${escapeText(text)}</p></div>`
@@ -424,11 +433,13 @@ export async function mountViewer(options: {
     if (focusResult) {
       docEl.querySelector<HTMLElement>(`.blk[data-from="${pre.length}"]`)?.focus() // Esc keeps you in the keyboard flow
     }
-    // Redraw the whole page once typing has stopped.
+    // Redraw the whole page once typing has stopped. The need is remembered, so moving on to another
+    // block (which cancels the timer) does not lose it: the next block to close schedules it again.
+    pageStale ||= wholePage
     clearTimeout(redrawTimer)
-    if (wholePage) {
+    if (pageStale) {
       redrawTimer = setTimeout(() => {
-        if (!editing && current === pre + text + post) {
+        if (!editing) {
           draw(current)
         }
       }, 400)
@@ -468,6 +479,7 @@ export async function mountViewer(options: {
     const cursor = place === 'start' ? 0 : place === 'end' || !blk || !existing ? raw.length : sourceOffsetAt(blk, x, y, raw)
     const pre = current.slice(0, from) + prefix
     const post = current.slice(to)
+    const originalHtml = existing ? box.innerHTML : ''
     box.classList.add('editing')
     box.replaceChildren()
     const editor = options.editor(box, {
@@ -497,14 +509,15 @@ export async function mountViewer(options: {
         }
       }
     })
-    editing = { el: box, editor, pre, post, originalLength: to - from }
+    const stop = new AbortController()
+    editing = { el: box, editor, pre, post, originalLength: to - from, originalHtml, stop }
     box.addEventListener('focusout', (event) => {
       const moved = event.relatedTarget as Node | null
       // Leaving the window is not leaving the block; stay in it until focus really moves.
       if (editing && editing.el === box && !(moved && box.contains(moved)) && (moved !== null || document.hasFocus())) {
         endEdit()
       }
-    })
+    }, { signal: stop.signal })
     editor.setCursor(cursor)
     editor.focus()
   }
@@ -728,6 +741,7 @@ export async function mountViewer(options: {
     // The file changed somewhere else (an agent, another editor); your typing is already merged in.
     clearTimeout(redrawTimer)
     if (editing) {
+      editing.stop.abort()
       editing.editor.destroy()
       editing = null
     }

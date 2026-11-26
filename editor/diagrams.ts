@@ -68,11 +68,36 @@ const themeVariables = (): Record<string, unknown> => {
 }
 
 let run = 0
+// Drawn SVG by diagram source. Clicking a block redraws the page around it; without this every
+// diagram would go through Mermaid again on each click, which is what made editing feel slow.
+const drawn = new Map<string, string>()
 
-/** Draws every diagram under `root`; a newer call cancels an older one that is still going. */
-export async function renderDiagrams(root: HTMLElement): Promise<void> {
-  const blocks = Array.from(root.querySelectorAll<HTMLElement>('.diagram[data-src]'))
+/**
+ * Draws the diagrams under `root` that are not drawn yet; a newer call cancels an older one that is
+ * still going. `restyle` (the colors or fonts changed) throws away every drawing and starts again.
+ */
+export async function renderDiagrams(root: HTMLElement, restyle = false): Promise<void> {
+  const all = Array.from(root.querySelectorAll<HTMLElement>('.diagram[data-src]'))
+  if (restyle) {
+    drawn.clear()
+    // Old drawings stay on screen until redrawn, but are marked stale, so a later call that
+    // cancels this one still redraws them.
+    all.forEach((b) => b.classList.add('stale'))
+  }
+  const fresh = (b: HTMLElement): boolean => b.classList.contains('drawn') && !b.classList.contains('stale')
   const mine = ++run
+  // Ones drawn before, under these colors, come straight from the cache.
+  const blocks: HTMLElement[] = []
+  for (const block of all) {
+    const svg = drawn.get(block.getAttribute('data-src') ?? '')
+    if (svg !== undefined && !fresh(block)) {
+      block.innerHTML = svg
+      block.classList.add('drawn')
+      block.classList.remove('failed', 'stale')
+    } else if (!fresh(block)) {
+      blocks.push(block)
+    }
+  }
   if (blocks.length === 0) {
     return
   }
@@ -96,9 +121,13 @@ export async function renderDiagrams(root: HTMLElement): Promise<void> {
         if (mine !== run) {
           return
         }
+        if (drawn.size > 200) {
+          drawn.clear() // old versions of a diagram you kept editing
+        }
+        drawn.set(source, svg)
         block.innerHTML = svg
         block.classList.add('drawn')
-        block.classList.remove('failed')
+        block.classList.remove('failed', 'stale')
       } catch (error) {
         document.getElementById(`d${id}`)?.remove() // Mermaid can leave its error drawing in <body>
         const note = document.createElement('div')
@@ -111,6 +140,7 @@ export async function renderDiagrams(root: HTMLElement): Promise<void> {
         pre.append(code)
         block.replaceChildren(note, pre)
         block.classList.add('failed')
+        block.classList.remove('stale')
       }
     }
   } catch (error) {

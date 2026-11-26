@@ -55,6 +55,8 @@ export type RenderOptions = {
   mdx?: boolean
   /** The file's link reference definitions, for a piece of it drawn on its own (one edited block). */
   definitions?: string
+  /** Only the outline, word count and definitions: no HTML is made, so math and code are not drawn. */
+  metaOnly?: boolean
 }
 
 /** In front of every id the Markdown gives an element (headings, footnotes, HTML anchors), as on
@@ -632,7 +634,9 @@ const plainText = (tokens: Token[]): string =>
     })
     .join('')
 
-const makeMarked = (toc: TocEntry[], seen: Map<string, number>, mdx: boolean, notes: Notes): Marked => {
+type MarkedPage = { md: Marked; addHeading: (tokens: Token[], depth: number) => string }
+
+const makeMarked = (toc: TocEntry[], seen: Map<string, number>, mdx: boolean, notes: Notes): MarkedPage => {
   const md = new Marked({ gfm: true, breaks: false })
   // GitHub's anchors (as github-slugger makes them): lower case, only letters, marks, digits, "_",
   // "-" and spaces kept, and each space a "-", so "Foo & Bar" is #foo--bar, "🚀 Launch" is #-launch
@@ -648,14 +652,19 @@ const makeMarked = (toc: TocEntry[], seen: Map<string, number>, mdx: boolean, no
     seen.set(id, 0)
     return id
   }
+  /** Lists a heading in the outline and gives its id. */
+  const addHeading = (tokens: Token[], depth: number): string => {
+    const plain = plainText(tokens)
+    const id = slug(plain)
+    toc.push({ depth, text: plain.replace(/\s+/g, ' ').trim(), id })
+    return id
+  }
   md.use({ extensions: [mathBlock, mathInline, markInline, emojiInline, ...footnoteExtensions(notes)] })
   md.use({
     renderer: {
       heading({ tokens, depth }: Tokens.Heading): string {
         const inner = this.parser.parseInline(tokens)
-        const plain = plainText(tokens)
-        const id = slug(plain)
-        toc.push({ depth, text: plain.replace(/\s+/g, ' ').trim(), id })
+        const id = addHeading(tokens, depth)
         return `<h${depth} id="${ANCHOR_PREFIX}${id}"><a class="anchor" href="#${id}" data-href="#${id}">#</a>${inner}</h${depth}>\n`
       },
       code({ text, lang }: Tokens.Code): string {
@@ -736,7 +745,7 @@ const makeMarked = (toc: TocEntry[], seen: Map<string, number>, mdx: boolean, no
       }
     }
   })
-  return md
+  return { md, addHeading }
 }
 
 /** highlight.js HTML for the code; used by the Live editor to color fenced code. */
@@ -844,6 +853,51 @@ const joinWrappingHtml = (pieces: Piece[], text: string): Piece[] => {
   return out
 }
 
+const normLabel = (s: string): string => s.toLowerCase().replace(/\s+/g, ' ')
+
+/**
+ * From link reference definitions, a function giving the ones a block may use: those whose label
+ * the block writes as `[label]` (a shortcut, a collapsed or a full reference). A definition whose
+ * label cannot be read is always given, so nothing that worked before is lost.
+ */
+const definitionPicker = (all: string): ((source: string) => string) => {
+  if (all.trim() === '') {
+    return () => ''
+  }
+  // One entry per definition; a title on the next line stays with its definition.
+  const entries = all.split(/\n(?= {0,3}\[)/).map((text) => {
+    const m = /^ {0,3}\[((?:[^\]\\]|\\.)+)\]:/.exec(text)
+    return { text, label: m ? `[${normLabel(m[1])}]` : null }
+  })
+  return (source) => {
+    if (!source.includes('[')) {
+      return ''
+    }
+    const hay = normLabel(source)
+    return entries
+      .filter((e) => e.label === null || hay.includes(e.label))
+      .map((e) => e.text)
+      .join('\n')
+  }
+}
+
+/** Walks marked's tokens in page order and lists each heading, as the renderer would. */
+const collectHeadings = (tokens: Token[], addHeading: (tokens: Token[], depth: number) => string): void => {
+  for (const t of tokens) {
+    if (t.type === 'heading') {
+      addHeading((t as Tokens.Heading).tokens, (t as Tokens.Heading).depth)
+      continue
+    }
+    if (t.type === 'list') {
+      for (const item of (t as Tokens.List).items) {
+        collectHeadings(item.tokens, addHeading)
+      }
+    } else if ('tokens' in t && Array.isArray(t.tokens)) {
+      collectHeadings(t.tokens, addHeading)
+    }
+  }
+}
+
 /**
  * Renders the page as blocks, so the editor can swap one block for an editable copy of its own
  * Markdown. Each block is parsed on its own; the link reference definitions are put in front of
@@ -853,7 +907,7 @@ export function renderBlocks(source: string, options: RenderOptions = {}): Block
   const mdx = options.mdx === true
   const text = source.replace(/\r\n?/g, '\n')
   const toc: TocEntry[] = []
-  const md = makeMarked(toc, new Map(), mdx, scanNotes(text))
+  const { md, addHeading } = makeMarked(toc, new Map(), mdx, scanNotes(text))
   const blocks: Block[] = []
   const front = /^---[ \t]*\n([\s\S]*?)\n---[ \t]*(?:\n|$)/.exec(text)
   let base = 0
@@ -924,14 +978,20 @@ export function renderBlocks(source: string, options: RenderOptions = {}): Block
   }
   const own = defs.join('\n')
   const all = [options.definitions ?? '', own].filter((d) => d.trim() !== '').join('\n')
-  // In front, a blank line apart, where a code fence left open at the end cannot swallow them; and
-  // only where a reference link can be, which needs a "[".
+  const usedBy = definitionPicker(all)
   for (const p of pending) {
     if (p.defs) {
       blocks.push({ from: p.from, to: p.to, html: `<div class="link-defs">${escapeHtml(p.source)}</div>\n` })
       continue
     }
-    const markdown = all && p.source.includes('[') ? `${all}\n\n${p.source}` : p.source
+    // In front, a blank line apart, where a code fence left open at the end cannot swallow them; and
+    // only the ones this block may use, so a file with many references is not parsed again per block.
+    const used = usedBy(p.source)
+    const markdown = used ? `${used}\n\n${p.source}` : p.source
+    if (options.metaOnly) {
+      collectHeadings(md.lexer(markdown), addHeading)
+      continue
+    }
     blocks.push({ from: p.from, to: p.to, html: md.parse(markdown, { async: false }) as string })
   }
   blocks.sort((a, b) => a.from - b.from)

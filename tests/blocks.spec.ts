@@ -227,3 +227,18 @@ test('MDX: a component inside a sentence stays in it, and a fence inside a compo
   assert.equal((blocks[0].html.match(/class="codeblock/g) ?? []).length, 1)
   assert.match(blocks[0].html, /```js\nconst a = 1\n```\n.*Tabs/)
 })
+
+test('metaOnly gives the same outline, words and definitions as a full render', () => {
+  const text = '# A [x]\n\nSee [one][x] and [Two].\n\n> ## Quoted\n\n- item\n  ### In list\n\n[x]: /x\n[two]: /two\n  "title"\n'
+  const full = renderBlocks(text)
+  const meta = renderBlocks(text, { metaOnly: true })
+  assert.deepEqual([meta.toc, meta.words, meta.definitions], [full.toc, full.words, full.definitions])
+  assert.equal(meta.blocks.filter((b) => !b.html.includes('link-defs')).length, 0)
+})
+
+test('a block gets only the reference definitions it uses, and its links still work', () => {
+  const { definitions } = renderBlocks('[a]: /a\n[B c]: /bc "t"\n')
+  const html = renderBlocks('Go [here][b  C] or [a].', { definitions }).blocks[0].html
+  assert.match(html, /href="\/bc"/)
+  assert.match(html, /href="\/a"/)
+})
